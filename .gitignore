@@ -1,0 +1,9 @@
+target/
+
+# Tem o pcToken dentro. O exemplo (config.properties.example) é o que fica versionado.
+config.properties
+
+# Editores
+.idea/
+*.iml
+.vscode/

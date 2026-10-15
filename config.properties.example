@@ -1,0 +1,26 @@
+# Configuração do agente do Jarvis neste PC.
+# Copie para config.properties (que está no .gitignore) e preencha.
+
+# Onde o Jarvis atende. Só https: o pcToken viaja no cabeçalho Authorization, e em texto claro
+# vazaria em qualquer rede do caminho.
+urlApi=https://jarvis.barberagendaonline.store
+
+# O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
+pcToken=
+
+# A tela do Jarvis, que a ação abrir_hud abre no Chrome em modo kiosk. Também só https.
+urlHud=https://jarvis-hud-gamma.vercel.app
+
+# ---- Apps liberados ----
+# app.<nome>=<caminho do .exe>
+#
+# Esta lista é a única fonte de verdade: o Jarvis conhece apenas os NOMES daqui (eles vão no
+# cabeçalho X-Pc-Apps a cada consulta e viram a lista que o modelo pode escolher), nunca os
+# caminhos. Tirar uma linha daqui tira o app do alcance do Jarvis na hora, sem rebuild de nada.
+# Caminho que não existe mais é ignorado na partida, com aviso no log.
+#
+# O nome aceita letras minúsculas, números, _, . e -.
+app.chrome=C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe
+app.vscode=C:\\Users\\SEU_USUARIO\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe
+app.intellij=C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe
+app.spotify=C:\\Users\\SEU_USUARIO\\AppData\\Roaming\\Spotify\\Spotify.exe
