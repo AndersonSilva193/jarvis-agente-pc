@@ -18,12 +18,18 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Jar = (Join-Path $PSScriptRoot 'target\jarvis-agente-pc.jar'),
-    [string]$Config = (Join-Path $PSScriptRoot 'config.properties'),
+    [string]$Jar,
+    [string]$Config,
     [string]$Tarefa = 'JarvisAgentePc'
 )
 
 $ErrorActionPreference = 'Stop'
+
+# No Windows PowerShell 5.1 o $PSScriptRoot vem vazio quando avaliado como valor padrão dentro do
+# param(); no corpo do script ele é confiável. Daí os dois caminhos serem resolvidos aqui.
+$raiz = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+if (-not $Jar)    { $Jar    = Join-Path $raiz 'target\jarvis-agente-pc.jar' }
+if (-not $Config) { $Config = Join-Path $raiz 'config.properties' }
 
 function Falhar($mensagem) {
     Write-Host "ERRO: $mensagem" -ForegroundColor Red
@@ -75,7 +81,7 @@ $gatilho = New-ScheduledTaskTrigger -AtLogOn -User $usuario
 # MultipleInstances IgnoreNew é o que impede duas cópias do agente consumindo a mesma fila.
 # ExecutionTimeLimit 0 porque ele roda o dia inteiro, e o reinício de 1 min cobre uma queda.
 $ajustes = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit 0 `
+    -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
     -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -StartWhenAvailable
@@ -91,7 +97,7 @@ Start-ScheduledTask -TaskName $Tarefa
 
 Write-Host ''
 Write-Host "Tarefa '$Tarefa' registrada e iniciada." -ForegroundColor Green
-Write-Host "Log:     $env:LOCALAPPDATA\jarvis-agente-pc\agente.log"
+Write-Host "Log:     $env:LOCALAPPDATA\jarvis-agente-pc\agente.log.0"
 Write-Host "Estado:  Get-ScheduledTask -TaskName $Tarefa"
 Write-Host "Parar:   Stop-ScheduledTask -TaskName $Tarefa"
 Write-Host "Remover: Unregister-ScheduledTask -TaskName $Tarefa -Confirm:`$false"

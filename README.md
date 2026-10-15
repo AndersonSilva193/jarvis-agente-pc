@@ -77,11 +77,13 @@ Unregister-ScheduledTask -TaskName JarvisAgentePc -Confirm:$false   # remover
 
 ## Log
 
-`%LOCALAPPDATA%\jarvis-agente-pc\agente.log` (3 arquivos de 1 MB, rotativos). O `pcToken` nunca
-aparece nele.
+`%LOCALAPPDATA%\jarvis-agente-pc\agente.log.0` — o `pcToken` nunca aparece nele.
+
+O `.0` no fim não é erro de digitação: o `FileHandler` do Java numera as gerações, e são 3
+arquivos de 1 MB rotativos. O `.0` é sempre o atual; `.1` e `.2` são os anteriores.
 
 ```powershell
-Get-Content "$env:LOCALAPPDATA\jarvis-agente-pc\agente.log" -Tail 40 -Wait
+Get-Content "$env:LOCALAPPDATA\jarvis-agente-pc\agente.log.0" -Tail 40 -Wait
 ```
 
 ## Os dois contratos de segurança
