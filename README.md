@@ -4,8 +4,8 @@ O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem com
 devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,
 tirar print, dizer como o PC está, desligar, reiniciar e cancelar o desligamento.
 
-E ele **acorda sozinho**: diga "Jarvis, iniciar" para abrir a tela do Jarvis em tela cheia e ouvir
-a apresentação. O despertar por palmas fica desativado.
+E ele **acorda sozinho**: bata **duas palmas** ou diga "Jarvis, iniciar" para abrir a tela do
+Jarvis em tela cheia e ouvir a apresentação.
 
 **Nada escuta porta nesta máquina.** Toda conexão é de dentro para fora (long polling em
 `GET /api/pc/comandos`), como o próprio Jarvis faz com a API do Telegram. Sem porta aberta, sem
@@ -36,7 +36,7 @@ Preencha:
 - `app.chrome` — obrigatório para a tela abrir.
 - `app.<nome>=<caminho do .exe>` — um por programa liberado.
 
-As chaves do despertar (`gatilho.voz`, `microfone`,
+As chaves do despertar (`gatilho.palmas`, `gatilho.voz`, `microfone`, `palmas.sensibilidadeDb`,
 `voz.probabilidadeMinima`, `hud.modo`, `energia.manterPcAcordado`) estão comentadas uma a uma no
 `config.properties.example`. Todas têm padrão: um arquivo antigo, sem nenhuma delas, continua
 valendo.
@@ -136,26 +136,55 @@ acontecer — tempo de desistir com *"cancela"*.
 
 ## O despertar
 
-Diga *"Jarvis, iniciar"* para abrir a tela em tela cheia e ouvir a apresentação. O agente também
-continua aceitando os comandos existentes para abrir a HUD, colocá-la em repouso e verificar se a
-janela segue aberta.
+Bata **duas palmas** ou diga *"Jarvis, iniciar"* para abrir a tela em tela cheia e ouvir a
+apresentação. Os dois gatilhos dividem o mesmo microfone e valem ao mesmo tempo; qualquer um dos
+dois abre a tela. O agente também continua aceitando os comandos existentes para abrir a HUD,
+colocá-la em repouso e verificar se a janela segue aberta.
 
 **Tudo offline.** O reconhecimento acontece aqui, nesta máquina. Nenhum áudio sai daqui antes do
 gatilho — e depois dele, nenhum áudio sai *pelo agente*: quem passa a escutar é a própria HUD, no
 navegador, como já era antes.
 
+### As duas palmas
+
+O padrão aceito é **duas palmas com 200 a 700 ms entre elas** — bem rápido, tipo "pá-pá". Três ou
+mais seguidas não disparam nada: a decisão só sai 400 ms depois da segunda palma, se nada mais
+vier, e é isso que separa "chamei o Jarvis" de "a sala aplaudiu". Depois de abrir a tela, o
+detector fica surdo por 5 segundos.
+
+Não é só volume. Uma palma é um estouro **curto e agudo**, e são três filtros juntos que a separam
+do resto: altura acima do ruído de fundo (que é móvel, medido continuamente — a mesma sala tem
+piso diferente com o ar ligado e de madrugada), forma do pico (sobe ao máximo em até 5 ms e volta
+ao silêncio em até 80 ms) e timbre (muito agudo). A batida na mesa e a porta batendo são graves e
+sobem mais devagar; a nota de música demora a cair.
+
+O único número que depende da sua sala é `palmas.sensibilidadeDb`, e ele se mede:
+
+```powershell
+Stop-ScheduledTask -TaskName JarvisAgentePc
+java -jar target\jarvis-agente-pc.jar config.properties --calibrar
+```
+
+Pare o agente antes: só uma cópia roda por vez (há um *lock* em
+`%LOCALAPPDATA%\jarvis-agente-pc\agente.lock`). A calibração pede 5 segundos de silêncio e depois
+5 pares de palmas, na distância de uso; roda 13 limiares em paralelo sobre o mesmo áudio e sugere
+o menor que reconheceu todos os pares, com margem. Ela **não** escreve no `config.properties` —
+valide contra conversa e ruído antes de salvar o valor na mão. O áudio fica só na memória.
+
+Se a tela abrir sozinha, suba o valor de 2 em 2; se as palmas não forem reconhecidas, desça.
+
 ### Os dois estados
 
 | | microfone | energia |
 |---|---|---|
-| **repouso** (aguardando voz ou comando remoto) | aberto, no agente | PC acordado, monitor pode apagar |
+| **repouso** (aguardando palmas, voz ou comando remoto) | aberto, no agente | PC acordado, monitor pode apagar |
 | **ativo** (tela aberta) | **solto** — quem escuta é a HUD | PC e monitor acordados |
 
 Soltar o microfone em ativo não é economia de CPU: com o agente e a HUD escutando ao mesmo tempo,
 a voz do Jarvis saindo nas caixas voltaria pelo microfone e o detector ouviria a si mesmo.
 
 Volta ao repouso quando a janela fecha, ou com *"Jarvis, modo repouso"*. Em repouso, o agente
-aguarda o comando de voz; não reconhece palmas.
+aguarda as palmas e o comando de voz.
 
 Se a tela já estiver aberta, outro pedido para abri-la apenas traz a janela existente para a frente.
 
