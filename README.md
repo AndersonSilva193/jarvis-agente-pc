@@ -4,8 +4,8 @@ O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem com
 devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,
 tirar print, dizer como o PC está, desligar, reiniciar e cancelar o desligamento.
 
-E ele **acorda sozinho**: duas palmas, ou "Jarvis, iniciar", abrem a tela do Jarvis em tela cheia
-e ele se apresenta falando. Ver [O despertar](#o-despertar).
+E ele **acorda sozinho**: diga "Jarvis, iniciar" para abrir a tela do Jarvis em tela cheia e ouvir
+a apresentação. O despertar por palmas fica desativado.
 
 **Nada escuta porta nesta máquina.** Toda conexão é de dentro para fora (long polling em
 `GET /api/pc/comandos`), como o próprio Jarvis faz com a API do Telegram. Sem porta aberta, sem
@@ -32,12 +32,11 @@ Preencha:
 
 - `urlApi` — onde o Jarvis atende (só https).
 - `pcToken` — **o mesmo valor do `PC_TOKEN` no `.env` da VPS**. Gere com `openssl rand -hex 32`.
-- `urlHud` — a tela do Jarvis. É a mesma que o `abrir_hud` abre e a que o despertar acende; não
-  existe uma segunda chave para isso.
+- `urlHud` — a tela do Jarvis. É a mesma que o `abrir_hud` e o despertar por voz abrem.
 - `app.chrome` — obrigatório para a tela abrir.
 - `app.<nome>=<caminho do .exe>` — um por programa liberado.
 
-As chaves do despertar (`gatilho.palmas`, `gatilho.voz`, `microfone`, `palmas.sensibilidadeDb`,
+As chaves do despertar (`gatilho.voz`, `microfone`,
 `voz.probabilidadeMinima`, `hud.modo`, `energia.manterPcAcordado`) estão comentadas uma a uma no
 `config.properties.example`. Todas têm padrão: um arquivo antigo, sem nenhuma delas, continua
 valendo.
@@ -51,16 +50,6 @@ java -jar target\jarvis-agente-pc.jar config.properties
 ```
 
 A partida mostra a URL e os apps liberados. Daí, pelo Telegram: *"status do PC"*.
-
-### Calibrar o gatilho por palmas
-
-```powershell
-java -jar target\jarvis-agente-pc.jar config.properties --calibrar
-```
-
-Mede 5 segundos de silêncio, pede 5 pares de palmas e sugere o `palmas.sensibilidadeDb`. Não fala
-com a VPS. **Faça isto antes de confiar no despertar**: o número certo depende da sua sala, da
-distância até o microfone e do ganho dele — um valor bom no escritório é surdo na sala grande.
 
 ### Autoteste, sem falar com a VPS
 
@@ -147,7 +136,9 @@ acontecer — tempo de desistir com *"cancela"*.
 
 ## O despertar
 
-Duas palmas, ou *"Jarvis, iniciar"*, abrem a tela em tela cheia e o Jarvis se apresenta falando.
+Diga *"Jarvis, iniciar"* para abrir a tela em tela cheia e ouvir a apresentação. O agente também
+continua aceitando os comandos existentes para abrir a HUD, colocá-la em repouso e verificar se a
+janela segue aberta.
 
 **Tudo offline.** O reconhecimento acontece aqui, nesta máquina. Nenhum áudio sai daqui antes do
 gatilho — e depois dele, nenhum áudio sai *pelo agente*: quem passa a escutar é a própria HUD, no
@@ -157,17 +148,16 @@ navegador, como já era antes.
 
 | | microfone | energia |
 |---|---|---|
-| **repouso** (ouvindo o gatilho) | aberto, no agente | PC acordado, monitor pode apagar |
+| **repouso** (aguardando voz ou comando remoto) | aberto, no agente | PC acordado, monitor pode apagar |
 | **ativo** (tela aberta) | **solto** — quem escuta é a HUD | PC e monitor acordados |
 
 Soltar o microfone em ativo não é economia de CPU: com o agente e a HUD escutando ao mesmo tempo,
 a voz do Jarvis saindo nas caixas voltaria pelo microfone e o detector ouviria a si mesmo.
 
-Volta ao repouso quando a janela fecha, ou com *"Jarvis, modo repouso"*.
+Volta ao repouso quando a janela fecha, ou com *"Jarvis, modo repouso"*. Em repouso, o agente
+aguarda o comando de voz; não reconhece palmas.
 
-Bater palmas com a tela **já aberta** não abre outra janela: traz esta para a frente e o Jarvis
-diz só *"Já estou aqui, senhor."*. Esse pedido é a única vez em que o agente fala com a VPS sem
-ter recebido um comando antes — e mesmo nela ele manda só uma *chave* de frase, nunca o texto.
+Se a tela já estiver aberta, outro pedido para abri-la apenas traz a janela existente para a frente.
 
 ### Primeira vez: configurar o perfil da tela
 
@@ -180,7 +170,7 @@ fechou um segundo depois de abri-la.
 Em troca, esse perfil nasce vazio, e a HUD guarda a URL da API e o token no `localStorage`, que é
 por perfil. **Uma vez, na instalação:**
 
-1. Bata palmas (ou mande *"abre a HUD"* pelo Telegram) para o perfil nascer.
+1. Use o comando de voz ou mande *"abre a HUD"* pelo Telegram para o perfil nascer.
 2. A HUD vai cair na tela de configuração. Preencha a URL da API e o `HUD_TOKEN`.
 3. Pronto. O perfil fica em disco e os despertares seguintes caem direto na tela.
 
@@ -194,39 +184,17 @@ O script baixa whisper.cpp e o modelo base multilingue (cerca de 145 MB) para `f
 `modelos\`, ambos no `.gitignore`. Os caminhos são resolvidos a partir do `config.properties`,
 mesmo quando a tarefa agendada inicia o agente com outro diretório atual.
 
-**Sem os arquivos nada quebra**: o agente avisa que a voz offline está indisponível e as palmas
-continuam valendo. A voz só aceita a frase completa `"Jarvis, iniciar"`; a confiança configurada
-é verificada nos tokens de `"iniciar"`, enquanto uma única grafia alternativa observada para o
-nome ("Jardes") é normalizada para lidar com a limitação do vocabulário do modelo.
-
-### Como uma palma é reconhecida
-
-Três filtros, e o som precisa passar nos três:
-
-- **altura** — pelo menos `palmas.sensibilidadeDb` acima do ruído de fundo, que é medido
-  continuamente (a mesma sala tem piso diferente de dia e de madrugada);
-- **forma** — sobe ao máximo em até 5 ms e volta ao silêncio em até 80 ms. A batida na mesa sobe
-  mais devagar; a nota de música demora a cair;
-- **timbre** — muito agudo (taxa de cruzamento por zero alta). A batida na mesa e o passo no chão
-  são graves.
-
-E o gatilho é **exatamente duas**, com 200 a 700 ms entre elas, seguidas de 400 ms sem uma
-terceira — aplauso não é chamado. Depois de disparar, o detector fica surdo por 5 segundos.
-
-Errou? *"Jarvis, foi engano"* conta o alarme falso (o total vai para o log). Se virar rotina, rode
-`--calibrar` e suba a sensibilidade.
-
-Os testes do detector usam WAVs **sintetizados** (`src/test/resources`), gerados pelo
-`GeradorDeWavDeTeste`: duas palmas disparam; uma, três, batida na mesa e fala normal não. Eles
-provam a lógica, não a sua sala. Para trocá-los por gravações reais, grave em 16 kHz mono 16 bits
-e mantenha os mesmos nomes de arquivo.
+**Sem os arquivos nada quebra**: o agente avisa que a voz offline está indisponível; os comandos
+remotos para abrir a HUD continuam valendo. A voz só aceita a frase completa `"Jarvis, iniciar"`;
+a confiança configurada é verificada nos tokens de `"iniciar"`, enquanto uma única grafia
+alternativa observada para o nome ("Jardes") é normalizada para lidar com a limitação do modelo.
 
 ### Energia
 
 Com a tela aberta o agente pede ao Windows que não apague o monitor nem suspenda a máquina — um
 HUD que apaga no meio de uma frase não serve para nada. Em repouso, com
 `energia.manterPcAcordado=true` (o padrão), só impede a suspensão: o monitor apaga normalmente,
-mas o PC continua ouvindo as palmas.
+mas o PC continua aguardando a frase de ativação.
 
 Para conferir:
 
@@ -248,8 +216,6 @@ o pedido de energia vale por thread e some junto com ela.
 | `app '...' ignorado: caminho inválido` | no `.properties` a contrabarra é escape: use `C:\\Pasta\\x.exe` ou `C:/Pasta/x.exe` |
 | *"não está na lista de apps deste PC"* | falta a linha `app.<nome>` ou o `.exe` mudou de lugar |
 | o Jarvis diz que o PC está offline | o agente não está rodando: veja o log e `Get-ScheduledTask` |
-| palmas não acordam nada | rode `--calibrar`; confira `gatilho.palmas=true`, `urlHud` e `app.chrome` |
-| acorda sozinho o tempo todo | `palmas.sensibilidadeDb` baixo demais: rode `--calibrar` e suba |
 | *"Jarvis, iniciar"* não funciona | falta o modelo: rode `.\baixar-modelo.ps1` e veja o log na partida |
 | a tela abre na configuração | é a primeira vez nesse perfil do Chrome; preencha URL e `HUD_TOKEN` uma vez |
 | a tela abre muda | o Chrome só libera autoplay com a flag que o agente passa; abrindo a HUD à mão, clique uma vez |

@@ -8,17 +8,17 @@ urlApi=https://jarvis.barberagendaonline.store
 # O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
 pcToken=
 
-# A tela do Jarvis: é ela que a ação abrir_hud abre e é ela que o despertar por palmas acende.
+# A tela do Jarvis: é ela que a ação abrir_hud abre e que "Jarvis, iniciar" acende.
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app
 
 # ---- Despertar ----
-# Duas palmas, ou "Jarvis, iniciar", abrem a tela e o Jarvis se apresenta falando.
+# "Jarvis, iniciar" abre a tela e o Jarvis se apresenta falando.
 # O reconhecimento é TODO offline, aqui no PC: nenhum áudio sai desta máquina antes do gatilho.
 # Depois que a tela abre, o agente SOLTA o microfone — quem escuta passa a ser a própria HUD.
 
-# Duas palmas acordam o Jarvis.
-gatilho.palmas=true
+# Despertar por palmas desativado.
+gatilho.palmas=false
 
 # "Jarvis, iniciar" usa whisper.cpp e modelo base multilingue, todos locais.
 # Instale com baixar-modelo.ps1 (~145 MB).
@@ -28,11 +28,7 @@ gatilho.voz=true
 # Vazio usa o microfone padrão do Windows.
 microfone=
 
-# Quanto a palma precisa passar do ruído de fundo, em dB.
-#
-# NÃO CHUTE ESTE NÚMERO: ele depende da sua sala, da distância até o microfone e do ganho dele.
-# Meça com:   java -jar jarvis-agente-pc.jar --calibrar
-# Disparo demais? suba. Não dispara? baixe.
+# Sensibilidade usada pelo detector de palmas, caso seja habilitado manualmente.
 palmas.sensibilidadeDb=18
 
 # Caminhos relativos a este config.properties, nunca ao diretorio atual.
@@ -47,7 +43,7 @@ voz.probabilidadeMinima=0.6
 hud.modo=app
 
 # Em repouso, impedir o PC de suspender. O monitor continua apagando normalmente; o que isto
-# evita é o PC dormir e parar de ouvir as palmas. Confira com:  powercfg /requests
+# evita é o PC dormir enquanto aguarda o comando de voz. Confira com:  powercfg /requests
 energia.manterPcAcordado=true
 
 # ---- Apps liberados ----

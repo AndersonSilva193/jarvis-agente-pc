@@ -38,11 +38,11 @@ class ConfiguracaoTest {
     }
 
     @Test
-    @DisplayName("sem nenhuma linha de gatilho, os padrões são os seguros e ligados")
+    @DisplayName("sem configuração, palmas ficam desativadas e a voz continua habilitada")
     void padroes() throws Exception {
         Configuracao config = ler("");
 
-        assertTrue(config.gatilhoPalmas());
+        assertFalse(config.gatilhoPalmas());
         assertTrue(config.gatilhoVoz());
         assertEquals("", config.microfone(), "vazio = o padrão do Windows");
         assertEquals(Configuracao.SENSIBILIDADE_PADRAO, config.palmasSensibilidadeDb());
@@ -50,6 +50,16 @@ class ConfiguracaoTest {
         assertEquals(Configuracao.MODO_APP, config.hudModo());
         assertFalse(config.kiosk());
         assertTrue(config.manterPcAcordado());
+    }
+
+    @Test
+    @DisplayName("desativar palmas mantém o despertar por voz")
+    void despertarPorVozSemPalmas() throws Exception {
+        Configuracao config = ler("urlHud=https://hud.exemplo\n");
+
+        assertFalse(config.gatilhoPalmas());
+        assertTrue(config.gatilhoVoz());
+        assertTrue(config.despertarLigado());
     }
 
     @Test
@@ -73,7 +83,7 @@ class ConfiguracaoTest {
                 energia.manterPcAcordado=
                 """);
 
-        assertTrue(config.gatilhoPalmas());
+        assertFalse(config.gatilhoPalmas());
         assertEquals(Configuracao.SENSIBILIDADE_PADRAO, config.palmasSensibilidadeDb());
         // 7 está fora de [0, 1]: confiança não é porcentagem.
         assertEquals(Configuracao.CONFIANCA_PADRAO, config.vozConfiancaMinima());

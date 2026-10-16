@@ -19,7 +19,7 @@ import java.util.logging.Logger;
  *             cabeçalho {@code X-Pc-Apps} de cada consulta; o caminho nunca sai daqui. É isso que
  *             impede o modelo de escolher o que executar: ele escolhe um nome desta lista, ou
  *             nada.
- * @param gatilhoPalmas   se as duas palmas acordam o Jarvis
+ * @param gatilhoPalmas   se o despertar por palmas está habilitado
  * @param gatilhoVoz      se "Jarvis, iniciar" acorda o Jarvis; sem o modelo em {@code modelos/}
  *                        isto se desliga sozinho, com aviso no log
  * @param microfone       parte do nome do microfone; vazio usa o padrão do Windows
@@ -87,7 +87,7 @@ public record Configuracao(
         }
 
         return new Configuracao(urlApi, pcToken, urlHud, apps(propriedades),
-                booleano(propriedades, "gatilho.palmas", true),
+                booleano(propriedades, "gatilho.palmas", false),
                 booleano(propriedades, "gatilho.voz", true),
                 texto(propriedades, "microfone"),
                 decimal(propriedades, "palmas.sensibilidadeDb", SENSIBILIDADE_PADRAO, 3, 60),
