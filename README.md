@@ -1,5 +1,15 @@
 # jarvis-agente-pc
 
+## Criação de arquivos
+
+O comando `criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX ou CSV somente em `pastaArquivos`.
+Sem configuração, usa a pasta Documentos do Windows, subpasta `Jarvis`. O nome enviado pelo
+Jarvis não pode conter caminho; arquivos existentes recebem um sufixo numérico, sem sobrescrita.
+O agente envia o arquivo à VPS em upload binário autenticado por `pcToken`, limitado a 8 MiB.
+DOCX e PDF usam Markdown com tabelas; XLSX aceita até 5 abas, 2.000 linhas por aba, 30 colunas
+e 20.000 células. CSV usa uma tabela e acrescenta apóstrofo a valores que poderiam virar fórmula.
+
+
 O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem comando, executa e
 devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,
 tirar print, dizer como o PC está, desligar, reiniciar e cancelar o desligamento.

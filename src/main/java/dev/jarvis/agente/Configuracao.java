@@ -42,7 +42,8 @@ public record Configuracao(
         String hudModo,
         boolean manterPcAcordado,
         Path vozExecutavel,
-        Path vozModelo) {
+        Path vozModelo,
+        Path pastaArquivos) {
 
     private static final Logger log = Logger.getLogger(Configuracao.class.getName());
     private static final String PREFIXO_APP = "app.";
@@ -95,7 +96,8 @@ public record Configuracao(
                 modo,
                 booleano(propriedades, "energia.manterPcAcordado", true),
                 caminho(arquivo, propriedades, "voz.executavel", "ferramentas/whisper/whisper-cli.exe"),
-                caminho(arquivo, propriedades, "voz.modelo", "modelos/ggml-base.bin"));
+                caminho(arquivo, propriedades, "voz.modelo", "modelos/ggml-base.bin"),
+                pastaArquivos(arquivo, propriedades));
     }
 
     /**
@@ -144,13 +146,32 @@ public record Configuracao(
         return arquivo.toAbsolutePath().getParent().resolve(propriedades.getProperty(chave, padrao)).normalize();
     }
 
+    private static Path pastaArquivos(Path arquivo, Properties propriedades) {
+        String valor = texto(propriedades, "pastaArquivos");
+        if (valor.isEmpty()) return javax.swing.filechooser.FileSystemView.getFileSystemView()
+                .getDefaultDirectory().toPath().resolve("Jarvis").toAbsolutePath();
+        Path pasta = Path.of(valor);
+        return (pasta.isAbsolute() ? pasta : arquivo.toAbsolutePath().getParent().resolve(pasta))
+                .toAbsolutePath().normalize();
+    }
+
+    public Configuracao(URI api, String token, URI hud, Map<String, Path> apps,
+            boolean palmas, boolean voz, String microfone, double sensibilidade,
+            double probabilidade, String modo, boolean acordado, Path executavel, Path modelo) {
+        this(api, token, hud, apps, palmas, voz, microfone, sensibilidade, probabilidade,
+                modo, acordado, executavel, modelo, javax.swing.filechooser.FileSystemView
+                        .getFileSystemView().getDefaultDirectory().toPath().resolve("Jarvis"));
+    }
+
     /** Construtor mantido para configurações programáticas existentes. */
     public Configuracao(URI api, String token, URI hud, Map<String, Path> apps,
             boolean palmas, boolean voz, String microfone, double sensibilidade,
             double probabilidade, String modo, boolean acordado) {
         this(api, token, hud, apps, palmas, voz, microfone, sensibilidade, probabilidade,
                 modo, acordado, Path.of("ferramentas/whisper/whisper-cli.exe").toAbsolutePath(),
-                Path.of("modelos/ggml-base.bin").toAbsolutePath());
+                Path.of("modelos/ggml-base.bin").toAbsolutePath(),
+                javax.swing.filechooser.FileSystemView.getFileSystemView()
+                        .getDefaultDirectory().toPath().resolve("Jarvis"));
     }
 
     /** Os nomes para o cabeçalho X-Pc-Apps, em ordem e separados por vírgula. */

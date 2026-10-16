@@ -60,6 +60,7 @@ final class ExecutorDeAcoes {
                 case "bloquear_tela" -> bloquearTela(comando);
                 case "volume" -> volume(comando);
                 case "captura_tela" -> capturaTela(comando);
+                case "criar_arquivo" -> new CriadorDeArquivo(config.pastaArquivos()).criar(comando);
                 case "status_pc" -> Resultado.feito(comando, StatusDoPc.medir());
                 case "desligar" -> agendarShutdown(comando, "/s", "desligar");
                 case "reiniciar" -> agendarShutdown(comando, "/r", "reiniciar");

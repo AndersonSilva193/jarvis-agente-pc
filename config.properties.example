@@ -8,6 +8,10 @@ urlApi=https://jarvis.barberagendaonline.store
 # O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
 pcToken=
 
+# Pasta dos arquivos criados. Vazio: pasta Documentos do Windows, subpasta Jarvis.
+# Um caminho relativo parte da pasta deste config.properties.
+pastaArquivos=
+
 # A tela do Jarvis: é ela que a ação abrir_hud abre e que a palavra "Jarvis" acende.
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app

@@ -29,7 +29,7 @@ final class ClienteJarvis {
 
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
     private final JsonMapper json = JsonMapper.builder().build();
     private final Configuracao config;
@@ -67,15 +67,22 @@ final class ClienteJarvis {
         if (id.isEmpty() || acao.isEmpty()) {
             throw new IOException("comando sem id ou sem acao");
         }
-        return new ComandoRecebido(id, acao, texto(raiz, "argumento"));
+        return new ComandoRecebido(id, acao, texto(raiz, "argumento"), raiz.path("dados"));
     }
 
     /** Posta o resultado, tentando de novo quando a rede falha. */
     void enviarResultado(Resultado resultado) throws InterruptedException {
+        boolean arquivoEnviado = false;
+        if (resultado.arquivo() != null && resultado.ok()) {
+            try { arquivoEnviado = enviarArquivo(resultado); }
+            catch (IOException e) { log.warning("upload do arquivo falhou: " + e.getMessage()); }
+        }
         ObjectNode corpo = json.createObjectNode();
         corpo.put("comandoId", resultado.comandoId());
-        corpo.put("ok", resultado.ok());
-        corpo.put("mensagem", resultado.mensagem());
+        corpo.put("ok", resultado.ok() && (resultado.arquivo() == null || arquivoEnviado));
+        corpo.put("mensagem", resultado.arquivo() != null && !arquivoEnviado
+                ? "arquivo gerado, mas upload falhou" : resultado.mensagem());
+        corpo.put("arquivo", arquivoEnviado);
         if (resultado.imagemBase64() != null) {
             corpo.put("imagemBase64", resultado.imagemBase64());
         }
@@ -106,6 +113,16 @@ final class ClienteJarvis {
                 Thread.sleep(Duration.ofSeconds(2L * tentativa).toMillis());
             }
         }
+    }
+
+    private boolean enviarArquivo(Resultado resultado) throws IOException, InterruptedException {
+        long tamanho = java.nio.file.Files.size(resultado.arquivo());
+        if (tamanho == 0 || tamanho > 8L * 1024 * 1024) throw new IOException("arquivo vazio ou acima de 8 MiB");
+        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/arquivos/" + resultado.comandoId())))
+                .timeout(Duration.ofSeconds(60)).header("Content-Type", "application/octet-stream")
+                .POST(HttpRequest.BodyPublishers.ofFile(resultado.arquivo())).build();
+        HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
+        return resposta.statusCode() == 204;
     }
 
     /**
