@@ -12,7 +12,7 @@ import javax.sound.sampled.TargetDataLine;
 
 /**
  * A captura do microfone, em 16 kHz mono 16 bits — o formato que tanto o {@link DetectorDePalmas}
- * quanto o Vosk esperam.
+ * quanto o Whisper esperam.
  *
  * <p>A linha é aberta e fechada de verdade. Em ATIVO o {@code Despertador} fecha, e isso não é só
  * economia de CPU: com o agente escutando ao mesmo tempo que a HUD, a própria voz do Jarvis saindo
@@ -32,7 +32,7 @@ final class Microfone {
     static final int AMOSTRAS_POR_LEITURA = DetectorDePalmas.TAXA * 20 / 1000;
 
     private final String nomeDesejado;
-    private TargetDataLine linha;
+    private volatile TargetDataLine linha;
     private final byte[] bytes = new byte[AMOSTRAS_POR_LEITURA * 2];
 
     Microfone(String nomeDesejado) {
@@ -40,14 +40,15 @@ final class Microfone {
     }
 
     boolean aberto() {
-        return linha != null && linha.isOpen();
+        TargetDataLine atual = linha;
+        return atual != null && atual.isOpen();
     }
 
     /**
      * Abre a linha. Devolve falso quando não deu — sem exceção, porque quem chama vai só tentar
      * de novo daqui a pouco.
      */
-    boolean abrir() {
+    synchronized boolean abrir() {
         if (aberto()) {
             return true;
         }
@@ -101,7 +102,9 @@ final class Microfone {
             return -1;
         }
         try {
-            int lidos = linha.read(bytes, 0, bytes.length);
+            TargetDataLine atual = linha;
+            if (atual == null) return -1;
+            int lidos = atual.read(bytes, 0, bytes.length);
             if (lidos <= 0) {
                 return 0;
             }
@@ -118,7 +121,7 @@ final class Microfone {
         }
     }
 
-    void fechar() {
+    synchronized void fechar() {
         if (linha != null) {
             try {
                 linha.stop();

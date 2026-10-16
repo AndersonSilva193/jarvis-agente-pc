@@ -25,7 +25,7 @@ import java.util.logging.Logger;
  * @param microfone       parte do nome do microfone; vazio usa o padrão do Windows
  * @param palmasSensibilidadeDb quanto a palma precisa passar do ruído de fundo. Mede-se com
  *                        {@code --calibrar}, porque depende da sala e da distância
- * @param vozConfiancaMinima  o mínimo que o Vosk precisa ter certeza para aceitar a frase
+ * @param vozConfiancaMinima  a probabilidade média mínima dos tokens de "iniciar" no Whisper
  * @param hudModo         {@code app} (janela sem barra) ou {@code kiosk} (tela cheia travada)
  * @param manterPcAcordado  em repouso, impedir a suspensão para as palmas continuarem valendo
  */
@@ -40,18 +40,18 @@ public record Configuracao(
         double palmasSensibilidadeDb,
         double vozConfiancaMinima,
         String hudModo,
-        boolean manterPcAcordado) {
+        boolean manterPcAcordado,
+        Path vozExecutavel,
+        Path vozModelo) {
 
     private static final Logger log = Logger.getLogger(Configuracao.class.getName());
     private static final String PREFIXO_APP = "app.";
     /** O mesmo formato que o PcService aceita do outro lado. */
     private static final String NOME_DE_APP = "[a-z0-9][a-z0-9_.-]{0,31}";
 
-    /** Onde o modelo do Vosk é procurado; ver {@code baixar-modelo.ps1}. */
-    public static final Path PASTA_DOS_MODELOS = Path.of("modelos");
 
     public static final double SENSIBILIDADE_PADRAO = 18;
-    public static final double CONFIANCA_PADRAO = 0.7;
+    public static final double CONFIANCA_PADRAO = 0.6;
     public static final String MODO_APP = "app";
     public static final String MODO_KIOSK = "kiosk";
 
@@ -68,6 +68,8 @@ public record Configuracao(
         try (InputStream entrada = Files.newInputStream(arquivo)) {
             propriedades.load(entrada);
         }
+
+        if (propriedades.containsKey("voz.confiancaMinima")) log.warning("voz.confiancaMinima era do Vosk; use voz.probabilidadeMinima para Whisper");
 
         URI urlApi = urlHttps(propriedades, "urlApi", true);
         String pcToken = texto(propriedades, "pcToken");
@@ -89,9 +91,11 @@ public record Configuracao(
                 booleano(propriedades, "gatilho.voz", true),
                 texto(propriedades, "microfone"),
                 decimal(propriedades, "palmas.sensibilidadeDb", SENSIBILIDADE_PADRAO, 3, 60),
-                decimal(propriedades, "voz.confiancaMinima", CONFIANCA_PADRAO, 0, 1),
+                decimal(propriedades, "voz.probabilidadeMinima", CONFIANCA_PADRAO, 0, 1),
                 modo,
-                booleano(propriedades, "energia.manterPcAcordado", true));
+                booleano(propriedades, "energia.manterPcAcordado", true),
+                caminho(arquivo, propriedades, "voz.executavel", "ferramentas/whisper/whisper-cli.exe"),
+                caminho(arquivo, propriedades, "voz.modelo", "modelos/ggml-base.bin"));
     }
 
     /**
@@ -134,6 +138,19 @@ public record Configuracao(
             apps.put(nome, executavel);
         }
         return Map.copyOf(apps);
+    }
+
+    private static Path caminho(Path arquivo, Properties propriedades, String chave, String padrao) {
+        return arquivo.toAbsolutePath().getParent().resolve(propriedades.getProperty(chave, padrao)).normalize();
+    }
+
+    /** Construtor mantido para configurações programáticas existentes. */
+    public Configuracao(URI api, String token, URI hud, Map<String, Path> apps,
+            boolean palmas, boolean voz, String microfone, double sensibilidade,
+            double probabilidade, String modo, boolean acordado) {
+        this(api, token, hud, apps, palmas, voz, microfone, sensibilidade, probabilidade,
+                modo, acordado, Path.of("ferramentas/whisper/whisper-cli.exe").toAbsolutePath(),
+                Path.of("modelos/ggml-base.bin").toAbsolutePath());
     }
 
     /** Os nomes para o cabeçalho X-Pc-Apps, em ordem e separados por vírgula. */
@@ -188,7 +205,7 @@ public record Configuracao(
         }
         try {
             double numero = Double.parseDouble(valor);
-            if (numero < minimo || numero > maximo) {
+            if (!Double.isFinite(numero) || numero < minimo || numero > maximo) {
                 log.warning(chave + " = " + valor + " está fora de [" + minimo + ", " + maximo
                         + "]; usando " + padrao);
                 return padrao;

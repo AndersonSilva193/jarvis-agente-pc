@@ -20,9 +20,8 @@ urlHud=https://jarvis-hud-gamma.vercel.app
 # Duas palmas acordam o Jarvis.
 gatilho.palmas=true
 
-# "Jarvis, iniciar" acorda o Jarvis. Precisa do modelo do Vosk em modelos/ (rode
-# baixar-modelo.ps1, ~45 MB, uma vez só). Sem o modelo, o agente avisa no log e segue só com as
-# palmas — nada quebra.
+# "Jarvis, iniciar" usa whisper.cpp e modelo base multilingue, todos locais.
+# Instale com baixar-modelo.ps1 (~145 MB).
 gatilho.voz=true
 
 # Parte do nome do microfone, sem diferenciar maiúsculas (ex.: "Yeti", "Realtek").
@@ -36,9 +35,11 @@ microfone=
 # Disparo demais? suba. Não dispara? baixe.
 palmas.sensibilidadeDb=18
 
-# O quanto o Vosk precisa ter certeza para aceitar "Jarvis, iniciar" (0 a 1).
-# Mais alto = menos engano e mais repetição; mais baixo = o contrário.
-voz.confiancaMinima=0.7
+# Caminhos relativos a este config.properties, nunca ao diretorio atual.
+voz.executavel=ferramentas/whisper/whisper-cli.exe
+voz.modelo=modelos/ggml-base.bin
+# Media minima das probabilidades dos tokens da palavra "iniciar" no Whisper.
+voz.probabilidadeMinima=0.6
 
 # Como a tela abre:
 #   app   - janela sem barra de endereço, em tela cheia (dá para sair com Alt+F4)

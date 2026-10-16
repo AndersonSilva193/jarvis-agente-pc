@@ -31,6 +31,12 @@ class ConfiguracaoTest {
         return Configuracao.ler(arquivo);
     }
 
+    @Test void caminhosPartemDoArquivoNaoDoDiretorioAtual() throws Exception {
+        Configuracao config = ler("voz.executavel=bin/whisper-cli.exe\nvoz.modelo=modelos/base.bin\n");
+        assertEquals(pasta.resolve("bin/whisper-cli.exe").toAbsolutePath(), config.vozExecutavel());
+        assertEquals(pasta.resolve("modelos/base.bin").toAbsolutePath(), config.vozModelo());
+    }
+
     @Test
     @DisplayName("sem nenhuma linha de gatilho, os padrões são os seguros e ligados")
     void padroes() throws Exception {
@@ -62,7 +68,7 @@ class ConfiguracaoTest {
         Configuracao config = ler("""
                 gatilho.palmas=talvez
                 palmas.sensibilidadeDb=muito alto
-                voz.confiancaMinima=7
+                voz.probabilidadeMinima=7
                 hud.modo=telona
                 energia.manterPcAcordado=
                 """);
@@ -81,7 +87,7 @@ class ConfiguracaoTest {
         Configuracao config = ler("""
                 gatilho.voz=nao
                 palmas.sensibilidadeDb=24
-                voz.confiancaMinima=0,85
+                voz.probabilidadeMinima=0,85
                 hud.modo=KIOSK
                 energia.manterPcAcordado=false
                 microfone=Blue Yeti

@@ -114,18 +114,17 @@ final class ExecutorDeAcoes {
         if (config.app("chrome") == null) {
             return Resultado.falhou(comando, "falta app.chrome no config.properties deste PC");
         }
-        return janela.abrir()
-                ? Resultado.feito(comando, "abri a HUD em tela cheia")
-                : Resultado.feito(comando, "a HUD já estava aberta; trouxe para a frente");
+        return switch (janela.abrir()) {
+            case ABERTA -> Resultado.feito(comando, "abertura da HUD solicitada");
+            case JA_EXISTENTE -> Resultado.feito(comando, "a HUD já está aberta ou iniciando");
+            case FALHA -> Resultado.falhou(comando, "não foi possível abrir a HUD");
+        };
     }
 
     /** O "Jarvis, modo repouso": fecha a tela e o agente volta a escutar o gatilho. */
     private Resultado modoRepouso(ComandoRecebido comando) {
-        if (despertador == null) {
-            return Resultado.falhou(comando, "o despertar por palmas está desligado neste PC");
-        }
-        despertador.repousar();
-        return Resultado.feito(comando, "voltando ao repouso; escutando o gatilho de novo");
+        janela.fechar();
+        return Resultado.feito(comando, "fechamento da HUD solicitado; a escuta volta após fechar");
     }
 
     /** O "Jarvis, foi engano": conta o alarme falso e devolve o total. */

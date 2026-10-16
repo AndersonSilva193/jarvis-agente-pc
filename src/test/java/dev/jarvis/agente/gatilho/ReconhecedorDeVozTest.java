@@ -1,117 +1,65 @@
 package dev.jarvis.agente.gatilho;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import org.junit.jupiter.api.DisplayName;
+import static org.junit.jupiter.api.Assertions.*;
+import java.util.Arrays;
+import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-/**
- * A decisão sobre o que o Vosk devolveu, sem precisar do modelo de 45 MB.
- *
- * <p>Esta é a parte que decide se a casa acorda, e ela é só leitura de JSON — dá para exercitar
- * inteira sem áudio e sem binário nativo.
- */
 class ReconhecedorDeVozTest {
-
-    private static final double MINIMA = 0.7;
-
-    @Test
-    @DisplayName("encontra o modelo com final.mdl na raiz")
-    void encontraModeloNaRaiz(@TempDir Path pasta) throws IOException {
-        Path modelo = Files.createDirectory(pasta.resolve("portugues"));
-        Files.createFile(modelo.resolve("final.mdl"));
-        assertEquals(modelo, ReconhecedorDeVoz.procurarModelo(pasta));
-    }
-
-    @Test
-    @DisplayName("continua encontrando o modelo com am/final.mdl")
-    void encontraModeloEmAm(@TempDir Path pasta) throws IOException {
-        Path modelo = Files.createDirectory(pasta.resolve("outro-modelo"));
-        Files.createDirectories(modelo.resolve("am"));
-        Files.createFile(modelo.resolve("am/final.mdl"));
-        assertEquals(modelo, ReconhecedorDeVoz.procurarModelo(pasta));
-    }
-
-    @Test
-    @DisplayName("ignora pastas incompletas e diretorios chamados final.mdl")
-    void ignoraModeloIncompleto(@TempDir Path pasta) throws IOException {
-        Files.createDirectory(pasta.resolve("incompleto"));
-        Files.createDirectories(pasta.resolve("invalido/am/final.mdl"));
-        Files.createDirectory(pasta.resolve("invalido/final.mdl"));
-        assertEquals(null, ReconhecedorDeVoz.procurarModelo(pasta));
-    }
-
-    private static String resultado(String texto, double... confiancas) {
-        StringBuilder json = new StringBuilder("{\"result\":[");
-        String[] palavras = texto.isEmpty() ? new String[0] : texto.split(" ");
+    private String json(String texto, double... probabilidades) {
+        String[] palavras = texto.isBlank() ? new String[0] : texto.trim().split("\\s+");
+        StringBuilder tokens = new StringBuilder("[");
         for (int i = 0; i < palavras.length; i++) {
-            if (i > 0) {
-                json.append(',');
-            }
-            json.append("{\"conf\":").append(confiancas[i])
-                    .append(",\"word\":\"").append(palavras[i]).append("\"}");
+            if (i > 0) tokens.append(',');
+            double p = probabilidades[Math.min(i, probabilidades.length - 1)];
+            tokens.append("{\"id\":123,\"text\":\" ").append(palavras[i]).append("\",\"p\":").append(p).append('}');
         }
-        return json.append("],\"text\":\"").append(texto).append("\"}").toString();
+        tokens.append(']');
+        return "{\"transcription\":[{\"text\":\"" + texto + "\",\"tokens\":" + tokens + "}]}";
     }
-
-    @Test
-    @DisplayName("aceita as duas formas da frase quando a confiança é alta")
-    void aceitaAFrase() {
-        assertTrue(ReconhecedorDeVoz.interpretar(resultado("jarvis iniciar", 0.95, 0.9), MINIMA)
-                .isPresent());
-        // O modelo pequeno engole o "r" final com frequência; a gramática já prevê isso.
-        assertTrue(ReconhecedorDeVoz.interpretar(resultado("jarvis inicia", 0.88, 0.81), MINIMA)
-                .isPresent());
+    @Test void aceitaSomenteFraseInteira() {
+        assertTrue(ReconhecedorDeVoz.interpretar(json("Jarvis, iniciar!", .9), .6).isPresent());
+        for (String texto : new String[]{"iniciar", "jarvis inicia", "jarvis iniciar agora", "nao jarvis iniciar", ""})
+            assertTrue(ReconhecedorDeVoz.interpretar(json(texto, .9), .6).isEmpty(), texto);
+        assertTrue(ReconhecedorDeVoz.interpretar(json("jarvis iniciar", .3), .6).isEmpty());
+        var variacaoReconhecida = ReconhecedorDeVoz.interpretar(json("Jardes, iniciar.", .2, .9), .6);
+        assertTrue(variacaoReconhecida.isPresent());
+        assertEquals(.9, variacaoReconhecida.orElseThrow().confianca(), .001);
+        assertTrue(ReconhecedorDeVoz.interpretar(json("Jarvis iniciar", .9, .59), .6).isEmpty());
+        assertTrue(ReconhecedorDeVoz.interpretar("{}", .6).isEmpty());
+        assertTrue(ReconhecedorDeVoz.interpretar("quebrado", .6).isEmpty());
     }
-
-    @Test
-    @DisplayName("a confiança é a MENOR entre as palavras, não a média")
-    void confiancaEhAMenor() {
-        // "jarvis" certíssimo e "iniciar" no chute dariam média 0,61 — que já reprovaria — mas o
-        // caso perigoso é este: média boa escondendo uma palavra duvidosa.
-        assertFalse(ReconhecedorDeVoz.interpretar(resultado("jarvis iniciar", 1.0, 0.45), MINIMA)
-                .isPresent(), "média 0,72 passaria; a menor, 0,45, não pode passar");
-
-        assertEquals(0.82, ReconhecedorDeVoz
-                .interpretar(resultado("jarvis iniciar", 0.99, 0.82), MINIMA)
-                .orElseThrow().confianca(), 1e-9);
-    }
-
-    @Test
-    @DisplayName("recusa confiança baixa, frase de fora da gramática e resposta vazia")
-    void recusaOResto() {
-        assertFalse(ReconhecedorDeVoz.interpretar(resultado("jarvis iniciar", 0.5, 0.5), MINIMA)
-                .isPresent());
-        // O [unk] da gramática é exatamente o "não foi nada disso".
-        assertFalse(ReconhecedorDeVoz.interpretar(resultado("jarvis", 0.99), MINIMA).isPresent());
-        assertFalse(ReconhecedorDeVoz.interpretar(resultado(""), MINIMA).isPresent());
-        assertFalse(ReconhecedorDeVoz.interpretar("{\"text\":\"jarvis iniciar\"}", MINIMA)
-                .isPresent(), "sem as palavras não há confiança para conferir");
-        assertFalse(ReconhecedorDeVoz.interpretar("isto não é json", MINIMA).isPresent());
-    }
-
-    @Test
-    @DisplayName("sem modelo em modelos/, o reconhecedor não sobe e o agente segue sem ele")
-    void semModeloNaoSobe() {
-        // É o estado de quem acabou de clonar o repositório: o modelo não é versionado.
-        assertEquals(null,
-                ReconhecedorDeVoz.tentarCriar(Path.of("modelos-que-nao-existem"), MINIMA));
-    }
-
-    @Test
-    @DisplayName("a gramática tem as duas frases e o [unk], e nada mais")
-    void gramaticaFechada() {
-        // Vocabulário livre faria o modelo pequeno achar "jarvis" em meia conversa.
-        assertTrue(ReconhecedorDeVoz.GRAMATICA.contains("[unk]"));
-        for (String frase : ReconhecedorDeVoz.frasesAceitas()) {
-            assertTrue(ReconhecedorDeVoz.GRAMATICA.contains(frase), frase);
+    @Test void silencioNaoIniciaInferencia() {
+        AtomicInteger chamadas = new AtomicInteger();
+        try (var voz = new ReconhecedorDeVoz(pcm -> { chamadas.incrementAndGet(); return Optional.empty(); })) {
+            for (int i = 0; i < 1000; i++) voz.alimentar(new short[320], 320);
+            assertEquals(0, chamadas.get());
         }
+    }
+    @Test void cancelaResultadoAntigoENaoEmpilhaInferencias() throws Exception {
+        CountDownLatch iniciou = new CountDownLatch(1), liberar = new CountDownLatch(1);
+        AtomicInteger chamadas = new AtomicInteger();
+        try (var voz = new ReconhecedorDeVoz(pcm -> {
+            assertTrue(pcm.length <= 80_000);
+            chamadas.incrementAndGet(); iniciou.countDown(); liberar.await(3, TimeUnit.SECONDS);
+            return Optional.of(new ReconhecedorDeVoz.Reconhecimento(.9));
+        })) {
+            falar(voz);
+            assertTrue(iniciou.await(2, TimeUnit.SECONDS));
+            falar(voz);
+            assertEquals(1, chamadas.get());
+            voz.reiniciar(); liberar.countDown();
+            Thread.sleep(50);
+            assertTrue(voz.alimentar(new short[320], 320).isEmpty());
+        } finally { liberar.countDown(); }
+    }
+    private void falar(ReconhecedorDeVoz voz) {
+        short[] quieto = new short[320], som = new short[320]; Arrays.fill(som, (short) 3000);
+        for (int i = 0; i < 60; i++) voz.alimentar(quieto, 320);
+        for (int i = 0; i < 30; i++) voz.alimentar(som, 320);
+        for (int i = 0; i < 35; i++) voz.alimentar(quieto, 320);
     }
 }

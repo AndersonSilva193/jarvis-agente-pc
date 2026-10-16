@@ -8,5 +8,6 @@ config.properties
 *.iml
 .vscode/
 
-# O modelo do Vosk: ~45 MB baixados por baixar-modelo.ps1, nunca versionados.
+# Executáveis e modelos do Whisper, baixados e verificados por baixar-modelo.ps1.
+ferramentas/
 modelos/

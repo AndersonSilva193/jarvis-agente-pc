@@ -38,6 +38,16 @@ public final class AgentePc {
     }
 
     public static void main(String[] args) throws Exception {
+        try (InstanciaUnica instancia = InstanciaUnica.tentar(pastaDeDados())) {
+            if (instancia == null) {
+                System.err.println("O agente já está em execução. Pare-o antes de calibrar ou iniciar outra cópia.");
+                return;
+            }
+            executar(args);
+        }
+    }
+
+    private static void executar(String[] args) throws Exception {
         String ultimo = args.length > 0 ? args[args.length - 1] : "";
         boolean autoteste = "--testar".equals(ultimo);
         boolean calibrar = "--calibrar".equals(ultimo);
@@ -94,16 +104,10 @@ public final class AgentePc {
      */
     private static Despertador despertar(Configuracao config, JanelaDaHud janela,
             EnergiaDoWindows energia, ClienteJarvis cliente) {
-        if (!config.despertarLigado()) {
-            log.info("despertar desligado (gatilho.palmas, gatilho.voz ou urlHud)");
-            return null;
-        }
         Despertador despertador =
                 new Despertador(config, janela, energia, cliente::pedirFala);
         if (!despertador.temGatilho()) {
             log.warning("despertar sem gatilho nenhum de pé; seguindo só com os comandos da VPS");
-            despertador.close();
-            return null;
         }
         Thread thread = new Thread(despertador, "despertador");
         thread.setDaemon(true);

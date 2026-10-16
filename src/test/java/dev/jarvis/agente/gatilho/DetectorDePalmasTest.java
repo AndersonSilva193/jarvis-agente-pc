@@ -104,4 +104,37 @@ class DetectorDePalmasTest {
     void falaNaoDispara() throws Exception {
         assertFalse(tocar("fala-normal.wav").isPresent());
     }
+
+    @Test void palmasFracasEBlocosIrregulares() throws Exception {
+        short[] pcm = ler("duas-palmas.wav");
+        for (int i = 0; i < pcm.length; i++) pcm[i] = (short) (pcm[i] * .15);
+        DetectorDePalmas detector = new DetectorDePalmas(18);
+        int disparos = 0;
+        for (int i = 0; i < pcm.length; i += 137) {
+            short[] bloco = java.util.Arrays.copyOfRange(pcm, i, Math.min(pcm.length, i + 137));
+            if (detector.alimentar(bloco, bloco.length).isPresent()) disparos++;
+        }
+        org.junit.jupiter.api.Assertions.assertEquals(1, disparos);
+    }
+
+    @Test void resetDescartaPalmaAnteriorEReaprendeAmbiente() throws Exception {
+        DetectorDePalmas detector = new DetectorDePalmas(18);
+        short[] primeira = ler("uma-palma.wav");
+        detector.alimentar(primeira, 14_000);
+        detector.reiniciar();
+        assertFalse(detector.alimentar(primeira, primeira.length).isPresent());
+        detector.reiniciar();
+        short[] par = ler("duas-palmas.wav");
+        assertTrue(detector.alimentar(par, par.length).isPresent());
+    }
+
+    @Test void ruidoSustentadoNaoPrendeDetector() {
+        DetectorDePalmas detector = new DetectorDePalmas(18);
+        detector.alimentar(new short[16_000], 16_000);
+        short[] ruido = new short[48_000];
+        java.util.Random random = new java.util.Random(7);
+        for (int i = 0; i < ruido.length; i++) ruido[i] = (short) (random.nextInt(2001) - 1000);
+        assertFalse(detector.alimentar(ruido, ruido.length).isPresent());
+        assertTrue(detector.ruidoDb() > -45, "piso precisa acompanhar o ambiente novo");
+    }
 }

@@ -11,8 +11,8 @@ e ele se apresenta falando. Ver [O despertar](#o-despertar).
 `GET /api/pc/comandos`), como o próprio Jarvis faz com a API do Telegram. Sem porta aberta, sem
 domínio, sem webhook.
 
-Java 21, sem Spring, um jar só. Dependências: Jackson 3 (o mesmo do Jarvis), o Vosk para o
-reconhecimento de voz offline e a JNA que ele traz.
+Java 21, sem Spring, um jar só. Dependências: Jackson 3 (o mesmo do Jarvis), whisper.cpp para o
+reconhecimento de voz offline e JNA para integração com o Windows.
 
 ## Compilar
 
@@ -38,7 +38,7 @@ Preencha:
 - `app.<nome>=<caminho do .exe>` — um por programa liberado.
 
 As chaves do despertar (`gatilho.palmas`, `gatilho.voz`, `microfone`, `palmas.sensibilidadeDb`,
-`voz.confiancaMinima`, `hud.modo`, `energia.manterPcAcordado`) estão comentadas uma a uma no
+`voz.probabilidadeMinima`, `hud.modo`, `energia.manterPcAcordado`) estão comentadas uma a uma no
 `config.properties.example`. Todas têm padrão: um arquivo antigo, sem nenhuma delas, continua
 valendo.
 
@@ -190,17 +190,14 @@ por perfil. **Uma vez, na instalação:**
 .\baixar-modelo.ps1
 ```
 
-São ~45 MB do modelo pequeno de português do Vosk, para `modelos\` (que está no `.gitignore`). O
-agente procura ali qualquer pasta com `am\final.mdl` ou `final.mdl` na raiz (como no modelo de
-português 0.3), então trocar de versão do modelo não pede mexer na configuração.
+O script baixa whisper.cpp e o modelo base multilingue (cerca de 145 MB) para `ferramentas\` e
+`modelos\`, ambos no `.gitignore`. Os caminhos são resolvidos a partir do `config.properties`,
+mesmo quando a tarefa agendada inicia o agente com outro diretório atual.
 
-**Sem o modelo nada quebra**: o log diz `gatilho de voz desligado: não achei o modelo do Vosk` e
-as palmas continuam valendo.
-
-A gramática é fechada em `"jarvis iniciar"`, `"jarvis inicia"` e `[unk]`. Não é economia, é
-precisão: com vocabulário livre o modelo pequeno acha "jarvis" em meia conversa. E a confiança
-cobrada é a **menor** entre as palavras, não a média — "jarvis" certíssimo com "iniciar" no chute
-daria média boa, e é justamente esse o caso que não pode acordar a casa.
+**Sem os arquivos nada quebra**: o agente avisa que a voz offline está indisponível e as palmas
+continuam valendo. A voz só aceita a frase completa `"Jarvis, iniciar"`; a confiança configurada
+é verificada nos tokens de `"iniciar"`, enquanto uma única grafia alternativa observada para o
+nome ("Jardes") é normalizada para lidar com a limitação do vocabulário do modelo.
 
 ### Como uma palma é reconhecida
 

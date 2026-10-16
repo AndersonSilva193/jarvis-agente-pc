@@ -14,7 +14,6 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jackson.version>3.1.5</jackson.version>
-        <vosk.version>0.3.45</vosk.version>
         <jna.version>5.18.1</jna.version>
         <junit.version>6.0.3</junit.version>
     </properties>
@@ -28,20 +27,7 @@
             <version>${jackson.version}</version>
         </dependency>
 
-        <!-- O reconhecedor de "Jarvis, iniciar", offline. É pesado (traz os binários nativos de
-             todas as plataformas), e é o preço de não mandar áudio da sala para servidor nenhum:
-             nada sai desta máquina antes do gatilho. Sem o modelo baixado em modelos/, o agente
-             avisa no log e segue só com as palmas — ver ReconhecedorDeVoz. -->
-        <dependency>
-            <groupId>com.alphacephei</groupId>
-            <artifactId>vosk</artifactId>
-            <version>${vosk.version}</version>
-        </dependency>
-
-        <!-- Vem junto com o Vosk, mas declarada à vista: o EnergiaDoWindows a usa direto para
-             chamar SetThreadExecutionState. Dependência que o nosso código usa não fica escondida
-             numa transitiva. Não puxamos o jna-platform (3 MB) só pelo Kernel32: a interface são
-             três linhas. -->
+        <!-- JNA: energia e janelas nativas do Windows, sem abrir outra instancia do Chrome. -->
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
@@ -130,18 +116,7 @@
                                         <exclude>module-info.class</exclude>
                                     </excludes>
                                 </filter>
-                                <!-- O Vosk e a JNA trazem binários de Windows, Linux e macOS. Este
-                                     agente é de Windows por desenho (Robot, LockWorkStation,
-                                     shutdown.exe, PowerShell), então os outros só engordariam o
-                                     jar: são ~20 MB que nunca seriam carregados. A JNA procura o
-                                     nativo em win32-x86-64/, que fica. -->
-                                <filter>
-                                    <artifact>com.alphacephei:vosk</artifact>
-                                    <excludes>
-                                        <exclude>darwin/**</exclude>
-                                        <exclude>linux-*/**</exclude>
-                                    </excludes>
-                                </filter>
+                                <!-- Conservar somente o runtime JNA do Windows x64. -->
                                 <filter>
                                     <artifact>net.java.dev.jna:jna</artifact>
                                     <excludes>

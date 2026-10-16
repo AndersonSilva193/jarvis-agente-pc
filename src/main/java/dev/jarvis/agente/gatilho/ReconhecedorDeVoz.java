@@ -1,187 +1,190 @@
 package dev.jarvis.agente.gatilho;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
-import java.util.stream.Stream;
-
-import org.vosk.LibVosk;
-import org.vosk.Model;
-import org.vosk.Recognizer;
-
+import dev.jarvis.agente.Configuracao;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/**
- * Reconhece "Jarvis, iniciar" com o Vosk, <b>offline</b>.
- *
- * <p>Offline é o ponto: nenhum áudio desta sala sai da máquina antes do gatilho. Nada de enviar o
- * microfone para uma API de fala para descobrir se alguém chamou.
- *
- * <p>A gramática é restrita a duas frases mais {@code [unk]}. Isso não é economia, é precisão: com
- * vocabulário livre, o modelo pequeno acha "jarvis" em meia conversa. Preso a duas frases, ele só
- * pode responder uma delas ou "não sei".
- *
- * <p><b>Anulável de propósito.</b> O modelo são ~45 MB que não cabem no repositório, e sem ele
- * este objeto não existe — {@link #tentarCriar} devolve {@code null}, o agente avisa no log e
- * segue só com as palmas. Gatilho de voz que não dá para montar não pode impedir o PC de ter
- * braço.
- */
+/** Reconhecimento local em trabalhador único; nunca envia áudio nem conserva transcrições. */
 final class ReconhecedorDeVoz implements AutoCloseable {
-
+    record Reconhecimento(double confianca) {}
+    interface Transcritor { Optional<Reconhecimento> transcrever(short[] pcm) throws Exception; }
     private static final Logger log = Logger.getLogger(ReconhecedorDeVoz.class.getName());
-
-    /** As únicas coisas que o reconhecedor pode responder. */
-    static final String GRAMATICA = "[\"jarvis iniciar\", \"jarvis inicia\", \"[unk]\"]";
-
-    /** O que marca uma pasta como modelo do Vosk, qualquer que seja a versão no nome. */
-    private static final List<Path> MARCAS_DO_MODELO =
-            List.of(Path.of("am", "final.mdl"), Path.of("final.mdl"));
-
-    /** -1 cala o Vosk: ele escreve direto no stderr e inundaria o agente.log. */
-    private static final int VOSK_EM_SILENCIO = -1;
-
     private static final JsonMapper JSON = JsonMapper.builder().build();
+    private final ExecutorService trabalhador = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "voz-offline"); t.setDaemon(true); return t;
+    });
+    private final Transcritor transcritor;
+    private final short[] audio = new short[80_000];
+    private final short[] anterior = new short[3_200];
+    private int cursorAnterior, tamanho, silencio, atividade, aquecimento;
+    private double piso = -60;
+    private boolean ocupado, fechado;
+    private long geracao;
+    private long rodadaEmExecucao;
+    private Reconhecimento resultado;
+    private Process processo;
 
-    private final Model modelo;
-    private final Recognizer reconhecedor;
-    private final double confiancaMinima;
-
-    /** Uma frase aceita, com o quanto o modelo confiou nela. */
-    record Reconhecimento(String frase, double confianca) {
+    ReconhecedorDeVoz(Transcritor transcritor) { this.transcritor = transcritor; }
+    private ReconhecedorDeVoz(Configuracao config) {
+        this.transcritor = pcm -> executar(config, pcm);
     }
-
-    private ReconhecedorDeVoz(Model modelo, Recognizer reconhecedor, double confiancaMinima) {
-        this.modelo = modelo;
-        this.reconhecedor = reconhecedor;
-        this.confiancaMinima = confiancaMinima;
-    }
-
-    /**
-     * Monta o reconhecedor, ou devolve {@code null} explicando no log por quê.
-     *
-     * <p>Pega {@code Throwable} e não {@code Exception} porque a falha mais provável aqui é um
-     * {@code UnsatisfiedLinkError} ao carregar o binário nativo — e isso é um {@code Error}.
-     */
-    static ReconhecedorDeVoz tentarCriar(Path pastaDosModelos, double confiancaMinima) {
-        Path modelo = procurarModelo(pastaDosModelos);
-        if (modelo == null) {
-            log.warning("gatilho de voz desligado: não achei o modelo do Vosk em "
-                    + pastaDosModelos.toAbsolutePath() + " (rode baixar-modelo.ps1). "
-                    + "As palmas continuam valendo.");
+    static ReconhecedorDeVoz tentarCriar(Configuracao config) {
+        if (!Files.isRegularFile(config.vozExecutavel()) || !Files.isRegularFile(config.vozModelo())) {
+            log.warning("voz offline indisponível: execute baixar-modelo.ps1 ao lado do config.properties");
             return null;
         }
-        try {
-            LibVosk.vosk_set_log_level(VOSK_EM_SILENCIO);
-            Model carregado = new Model(modelo.toString());
-            Recognizer reconhecedor =
-                    new Recognizer(carregado, DetectorDePalmas.TAXA, GRAMATICA);
-            // A confiança por palavra só vem com isto ligado.
-            reconhecedor.setWords(true);
-            log.info("gatilho de voz de pé com o modelo " + modelo.getFileName());
-            return new ReconhecedorDeVoz(carregado, reconhecedor, confiancaMinima);
-        } catch (Throwable e) {
-            log.warning("gatilho de voz desligado: o Vosk não subiu (" + e + "). "
-                    + "As palmas continuam valendo.");
-            return null;
-        }
+        log.info("voz offline pronta: whisper.cpp, frase completa Jarvis iniciar");
+        return new ReconhecedorDeVoz(config);
     }
-
-    /** A primeira pasta de {@code modelos/} que parece um modelo do Vosk. */
-    static Path procurarModelo(Path pasta) {
-        if (!Files.isDirectory(pasta)) {
-            return null;
+    synchronized Optional<Reconhecimento> alimentar(short[] pcm, int quantidade) {
+        Reconhecimento pronto = resultado;
+        resultado = null;
+        if (fechado) return Optional.empty();
+        if (pronto != null) return Optional.of(pronto);
+        double db = DetectorDePalmas.decibeis(pcm, quantidade);
+        if (aquecimento < 16_000) {
+            piso += (db - piso) * .1;
+            aquecimento += quantidade;
+            guardarAnterior(pcm, quantidade);
+            return Optional.empty();
         }
-        try (Stream<Path> candidatos = Files.list(pasta)) {
-            // Pelo conteúdo, e não pelo nome: assim trocar de versão do modelo não pede
-            // mexer na configuração.
-            return candidatos.filter(Files::isDirectory)
-                    .filter(dir -> MARCAS_DO_MODELO.stream()
-                            .anyMatch(marca -> Files.isRegularFile(dir.resolve(marca))))
-                    .findFirst()
-                    .orElse(null);
-        } catch (IOException e) {
-            log.warning("não consegui ler " + pasta + ": " + e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Consome áudio e devolve a frase quando ela foi dita inteira.
-     *
-     * <p>Só resultado <b>final</b>: o parcial do Vosk muda a cada pedaço de áudio e dispararia no
-     * meio de uma palavra. {@code acceptWaveForm} devolvendo verdadeiro é o fim de um enunciado —
-     * é ali que o resultado para de mudar.
-     */
-    Optional<Reconhecimento> alimentar(short[] amostras, int quantidade) {
-        try {
-            if (!reconhecedor.acceptWaveForm(amostras, quantidade)) {
+        boolean alto = db > Math.max(-65, piso + 8);
+        if (tamanho == 0) {
+            if (!alto || ocupado) {
+                piso += (db - piso) * .02;
+                guardarAnterior(pcm, quantidade);
                 return Optional.empty();
             }
-            return interpretar(reconhecedor.getResult(), confiancaMinima);
-        } catch (RuntimeException e) {
-            log.warning("o Vosk reclamou: " + e);
-            return Optional.empty();
+            for (int i = 0; i < anterior.length; i++) audio[i] = anterior[(cursorAnterior + i) % anterior.length];
+            tamanho = anterior.length;
+        }
+        int copiar = Math.min(quantidade, audio.length - tamanho);
+        System.arraycopy(pcm, 0, audio, tamanho, copiar);
+        tamanho += copiar;
+        if (alto) { atividade += copiar; silencio = 0; } else silencio += copiar;
+        if (tamanho == audio.length || silencio >= 9_600) {
+            if (atividade >= 3_200) enviar(Arrays.copyOf(audio, tamanho));
+            Arrays.fill(audio, (short) 0);
+            tamanho = silencio = atividade = 0;
+        }
+        guardarAnterior(pcm, quantidade);
+        return Optional.empty();
+    }
+    private void guardarAnterior(short[] pcm, int quantidade) {
+        for (int i = 0; i < quantidade; i++) {
+            anterior[cursorAnterior] = pcm[i];
+            cursorAnterior = (cursorAnterior + 1) % anterior.length;
         }
     }
-
-    /** Zera o reconhecedor: ao voltar do modo ativo, nada do que se falou antes deve sobrar. */
-    void reiniciar() {
+    private void enviar(short[] pcm) {
+        if (ocupado || fechado) return;
+        ocupado = true;
+        long rodada = geracao;
+        rodadaEmExecucao = rodada;
+        trabalhador.execute(() -> {
+            try {
+                Optional<Reconhecimento> ouvido = transcritor.transcrever(pcm);
+                synchronized (this) {
+                    if (!fechado && rodada == geracao) resultado = ouvido.orElse(null);
+                }
+            } catch (Exception e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                synchronized (this) {
+                    if (!fechado && rodada == geracao) log.warning("falha na voz offline: " + e.getClass().getSimpleName());
+                }
+            } finally {
+                Arrays.fill(pcm, (short) 0);
+                synchronized (this) { ocupado = false; }
+            }
+        });
+    }
+    private Optional<Reconhecimento> executar(Configuracao config, short[] pcm) throws Exception {
+        Path pasta = Files.createTempDirectory("jarvis-voz-");
+        Path wav = pasta.resolve("entrada.wav");
+        Path saida = pasta.resolve("resultado.json");
+        Process atual = null;
         try {
-            reconhecedor.reset();
-        } catch (RuntimeException e) {
-            log.warning("não consegui reiniciar o Vosk: " + e);
+            Files.write(wav, wav(pcm));
+            synchronized (this) {
+                if (fechado || rodadaEmExecucao != geracao || Thread.currentThread().isInterrupted()) return Optional.empty();
+                atual = new ProcessBuilder(config.vozExecutavel().toString(), "-m", config.vozModelo().toString(),
+                        "-f", wav.toString(), "-l", "pt", "-ojf", "-of", pasta.resolve("resultado").toString(),
+                        "-t", "4", "-ng", "-np", "-nt", "-tp", "0", "-tpi", "0")
+                        .redirectError(ProcessBuilder.Redirect.DISCARD)
+                        .redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+                processo = atual;
+            }
+            if (!atual.waitFor(15, TimeUnit.SECONDS)) throw new IOException("tempo excedido");
+            if (atual.exitValue() != 0 || !Files.isRegularFile(saida)) throw new IOException("transcrição indisponível");
+            return interpretar(Files.readString(saida), config.vozConfiancaMinima());
+        } finally {
+            if (atual != null && atual.isAlive()) { atual.destroyForcibly(); atual.waitFor(2, TimeUnit.SECONDS); }
+            synchronized (this) { if (processo == atual) processo = null; }
+            Files.deleteIfExists(saida);
+            Files.deleteIfExists(wav);
+            Files.deleteIfExists(pasta);
         }
     }
-
-    /**
-     * Lê o JSON do Vosk e decide.
-     *
-     * <p>A confiança é a <b>menor</b> entre as palavras, não a média: "jarvis" certíssimo e
-     * "iniciar" no chute dariam média boa, e é justamente esse o caso que não pode acordar a casa.
-     */
-    static Optional<Reconhecimento> interpretar(String resultadoJson, double confiancaMinima) {
-        JsonNode resposta;
+    static Optional<Reconhecimento> interpretar(String json, double minima) {
         try {
-            resposta = JSON.readTree(resultadoJson);
-        } catch (RuntimeException e) {
-            return Optional.empty();
-        }
-        String frase = resposta.path("text").asString("").trim().toLowerCase(Locale.ROOT);
-        if (!frase.startsWith("jarvis inicia")) {
-            return Optional.empty();
-        }
-        JsonNode palavras = resposta.path("result");
-        if (!palavras.isArray() || palavras.isEmpty()) {
-            return Optional.empty();
-        }
-        double menor = 1;
-        for (JsonNode palavra : palavras) {
-            menor = Math.min(menor, palavra.path("conf").asDouble(0));
-        }
-        if (menor < confiancaMinima) {
-            log.fine("ouvi '" + frase + "' com confiança " + menor + "; abaixo do mínimo");
-            return Optional.empty();
-        }
-        return Optional.of(new Reconhecimento(frase, menor));
+            JsonNode segmentos = JSON.readTree(json).path("transcription");
+            StringBuilder texto = new StringBuilder();
+            double soma = 0;
+            int quantidade = 0;
+            int indicePalavra = -1;
+            for (JsonNode segmento : segmentos) {
+                texto.append(segmento.path("text").asString(""));
+                for (JsonNode token : segmento.path("tokens")) {
+                    if (token.path("id").asInt(50_257) >= 50_257) continue;
+                    double p = token.path("p").asDouble(0);
+                    if (!Double.isFinite(p) || p < 0 || p > 1) return Optional.empty();
+                    String pedaco = token.path("text").asString("");
+                    if (pedaco.replaceAll("[^\\p{L}\\p{N}]", "").isEmpty()) continue;
+                    if (indicePalavra < 0) indicePalavra = 0;
+                    else if (pedaco.chars().anyMatch(Character::isWhitespace)) indicePalavra++;
+                    if (indicePalavra == 1) {
+                        soma += p;
+                        quantidade++;
+                    }
+                }
+            }
+            String frase = texto.toString().toLowerCase(Locale.ROOT).replaceAll("[\\p{Punct}\\s]+", " ").trim();
+            // O Whisper base em português costuma transcrever o nome fora do vocabulário como "Jardes".
+            if (frase.equals("jardes iniciar")) frase = "jarvis iniciar";
+            if (!frase.equals("jarvis iniciar") || quantidade == 0 || soma / quantidade < minima) return Optional.empty();
+            return Optional.of(new Reconhecimento(soma / quantidade));
+        } catch (RuntimeException e) { return Optional.empty(); }
     }
-
-    /** As frases que a gramática aceita, para o log e o README não saírem do combinado. */
-    static List<String> frasesAceitas() {
-        return List.of("jarvis iniciar", "jarvis inicia");
+    static byte[] wav(short[] pcm) {
+        ByteBuffer b = ByteBuffer.allocate(44 + pcm.length * 2).order(ByteOrder.LITTLE_ENDIAN);
+        b.putInt(0x46464952).putInt(36 + pcm.length * 2).putInt(0x45564157);
+        b.putInt(0x20746d66).putInt(16).putShort((short) 1).putShort((short) 1);
+        b.putInt(16_000).putInt(32_000).putShort((short) 2).putShort((short) 16);
+        b.putInt(0x61746164).putInt(pcm.length * 2);
+        for (short amostra : pcm) b.putShort(amostra);
+        return b.array();
     }
-
-    @Override
-    public void close() {
-        try {
-            reconhecedor.close();
-            modelo.close();
-        } catch (RuntimeException e) {
-            log.warning("erro ao fechar o Vosk: " + e);
-        }
+    synchronized void reiniciar() {
+        geracao++;
+        resultado = null;
+        tamanho = silencio = atividade = aquecimento = cursorAnterior = 0;
+        piso = -60;
+        Arrays.fill(audio, (short) 0); Arrays.fill(anterior, (short) 0);
+        if (processo != null) processo.destroyForcibly();
+    }
+    public synchronized void close() {
+        fechado = true; reiniciar(); trabalhador.shutdownNow();
     }
 }

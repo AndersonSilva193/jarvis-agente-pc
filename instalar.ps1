@@ -74,7 +74,7 @@ $usuario = "$env:USERDOMAIN\$env:USERNAME"
 
 $acao = New-ScheduledTaskAction -Execute $javaw `
     -Argument "-jar `"$Jar`" `"$Config`"" `
-    -WorkingDirectory (Split-Path $Jar -Parent)
+    -WorkingDirectory (Split-Path $Config -Parent)
 
 $gatilho = New-ScheduledTaskTrigger -AtLogOn -User $usuario
 
@@ -87,6 +87,10 @@ $ajustes = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
     -StartWhenAvailable
 
 $quem = New-ScheduledTaskPrincipal -UserId $usuario -LogonType Interactive -RunLevel Limited
+
+if (Get-ScheduledTask -TaskName $Tarefa -ErrorAction SilentlyContinue) {
+    Stop-ScheduledTask -TaskName $Tarefa
+}
 
 Register-ScheduledTask -TaskName $Tarefa -Action $acao -Trigger $gatilho `
     -Settings $ajustes -Principal $quem `

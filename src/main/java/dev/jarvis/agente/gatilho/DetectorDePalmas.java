@@ -107,6 +107,8 @@ final class DetectorDePalmas {
 
     private double ruidoDb = PISO_DB;
     private boolean aquecido;
+    private int descartandoMs;
+    private String diagnostico = "aquecendo";
 
     private Fase fase = Fase.PARADO;
     private long inicioDoPicoMs;
@@ -122,6 +124,15 @@ final class DetectorDePalmas {
     DetectorDePalmas(double sensibilidadeDb) {
         this.sensibilidadeDb = sensibilidadeDb;
     }
+
+    void reiniciar() {
+        java.util.Arrays.fill(historico, (short) 0);
+        java.util.Arrays.fill(sobra, (short) 0);
+        amostrasLidas = 0; naSobra = 0; ruidoDb = PISO_DB; aquecido = false;
+        fase = Fase.PARADO; palmas.clear(); surdoAteMs = 0; descartandoMs = 0;
+        diagnostico = "aquecendo";
+    }
+    String diagnostico() { return diagnostico; }
 
     /** O ruído de fundo medido até agora, em dBFS. O {@code --calibrar} vive disto. */
     double ruidoDb() {
@@ -182,7 +193,8 @@ final class DetectorDePalmas {
         switch (fase) {
             case PARADO -> {
                 // Fora de pico é o único momento em que o piso de ruído se atualiza.
-                ruidoDb = mover(ruidoDb, db, ALFA);
+                if (!alto) ruidoDb = mover(ruidoDb, db, ALFA);
+                diagnostico = alto ? "avaliando pico" : "abaixo do limiar";
                 if (alto) {
                     fase = Fase.SUBINDO;
                     inicioDoPicoMs = agoraMs;
@@ -215,8 +227,12 @@ final class DetectorDePalmas {
                 }
             }
             case DESCARTANDO -> {
+                diagnostico = "som longo ou ataque lento";
+                // Uma mudança sustentada de ruído não pode prender o detector para sempre.
+                if (++descartandoMs >= 300) ruidoDb = mover(ruidoDb, db, ALFA);
                 if (voltouAoSilencio) {
                     fase = Fase.PARADO;
+                    descartandoMs = 0;
                 }
             }
         }
@@ -229,7 +245,7 @@ final class DetectorDePalmas {
      * justamente o começo dele que carrega o estalo.
      */
     private boolean agudo() {
-        long inicio = inicioDoPicoMs * AMOSTRAS_POR_MS;
+        long inicio = (inicioDoPicoMs - 1) * AMOSTRAS_POR_MS;
         if (amostrasLidas - inicio > historico.length) {
             return false;
         }
@@ -246,7 +262,10 @@ final class DetectorDePalmas {
             }
             anterior = atual;
         }
-        return (double) cruzamentos / AMOSTRAS_POR_JANELA >= CRUZAMENTOS_MINIMOS;
+        int medidas = (int) Math.min(AMOSTRAS_POR_JANELA, amostrasLidas - inicio);
+        boolean aceito = medidas > 1 && (double) cruzamentos / (medidas - 1) >= CRUZAMENTOS_MINIMOS;
+        diagnostico = aceito ? "palma reconhecida" : "timbre grave";
+        return aceito;
     }
 
     private void registrarPalma(long emMs, double nivelDb) {
