@@ -20,12 +20,12 @@ import java.util.logging.Logger;
  *             impede o modelo de escolher o que executar: ele escolhe um nome desta lista, ou
  *             nada.
  * @param gatilhoPalmas   se o despertar por palmas está habilitado
- * @param gatilhoVoz      se "Jarvis, iniciar" acorda o Jarvis; sem o modelo em {@code modelos/}
+ * @param gatilhoVoz      se a palavra "Jarvis" acorda o Jarvis; sem o modelo em {@code modelos/}
  *                        isto se desliga sozinho, com aviso no log
  * @param microfone       parte do nome do microfone; vazio usa o padrão do Windows
  * @param palmasSensibilidadeDb quanto a palma precisa passar do ruído de fundo. Mede-se com
  *                        {@code --calibrar}, porque depende da sala e da distância
- * @param vozConfiancaMinima  a probabilidade média mínima dos tokens de "iniciar" no Whisper
+ * @param vozConfiancaMinima  a probabilidade média mínima dos tokens de "Jarvis" no Whisper
  * @param hudModo         {@code app} (janela sem barra) ou {@code kiosk} (tela cheia travada)
  * @param manterPcAcordado  em repouso, impedir a suspensão para as palmas continuarem valendo
  */

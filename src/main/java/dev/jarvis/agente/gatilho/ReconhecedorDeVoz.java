@@ -45,7 +45,7 @@ final class ReconhecedorDeVoz implements AutoCloseable {
             log.warning("voz offline indisponível: execute baixar-modelo.ps1 ao lado do config.properties");
             return null;
         }
-        log.info("voz offline pronta: whisper.cpp, frase completa Jarvis iniciar");
+        log.info("voz offline pronta: whisper.cpp, palavra de chamado Jarvis");
         return new ReconhecedorDeVoz(config);
     }
     synchronized Optional<Reconhecimento> alimentar(short[] pcm, int quantidade) {
@@ -143,7 +143,6 @@ final class ReconhecedorDeVoz implements AutoCloseable {
             StringBuilder texto = new StringBuilder();
             double soma = 0;
             int quantidade = 0;
-            int indicePalavra = -1;
             for (JsonNode segmento : segmentos) {
                 texto.append(segmento.path("text").asString(""));
                 for (JsonNode token : segmento.path("tokens")) {
@@ -152,18 +151,14 @@ final class ReconhecedorDeVoz implements AutoCloseable {
                     if (!Double.isFinite(p) || p < 0 || p > 1) return Optional.empty();
                     String pedaco = token.path("text").asString("");
                     if (pedaco.replaceAll("[^\\p{L}\\p{N}]", "").isEmpty()) continue;
-                    if (indicePalavra < 0) indicePalavra = 0;
-                    else if (pedaco.chars().anyMatch(Character::isWhitespace)) indicePalavra++;
-                    if (indicePalavra == 1) {
-                        soma += p;
-                        quantidade++;
-                    }
+                    soma += p;
+                    quantidade++;
                 }
             }
             String frase = texto.toString().toLowerCase(Locale.ROOT).replaceAll("[\\p{Punct}\\s]+", " ").trim();
             // O Whisper base em português costuma transcrever o nome fora do vocabulário como "Jardes".
-            if (frase.equals("jardes iniciar")) frase = "jarvis iniciar";
-            if (!frase.equals("jarvis iniciar") || quantidade == 0 || soma / quantidade < minima) return Optional.empty();
+            if (frase.equals("jardes")) frase = "jarvis";
+            if (!frase.equals("jarvis") || quantidade == 0 || soma / quantidade < minima) return Optional.empty();
             return Optional.of(new Reconhecimento(soma / quantidade));
         } catch (RuntimeException e) { return Optional.empty(); }
     }

@@ -4,7 +4,7 @@ O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem com
 devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,
 tirar print, dizer como o PC está, desligar, reiniciar e cancelar o desligamento.
 
-E ele **acorda sozinho**: bata **duas palmas** ou diga "Jarvis, iniciar" para abrir a tela do
+E ele **acorda sozinho**: bata **duas palmas** ou diga "Jarvis" para abrir a tela do
 Jarvis em tela cheia e ouvir a apresentação.
 
 **Nada escuta porta nesta máquina.** Toda conexão é de dentro para fora (long polling em
@@ -136,7 +136,7 @@ acontecer — tempo de desistir com *"cancela"*.
 
 ## O despertar
 
-Bata **duas palmas** ou diga *"Jarvis, iniciar"* para abrir a tela em tela cheia e ouvir a
+Bata **duas palmas** ou diga *"Jarvis"* para abrir a tela em tela cheia e ouvir a
 apresentação. Os dois gatilhos dividem o mesmo microfone e valem ao mesmo tempo; qualquer um dos
 dois abre a tela. O agente também continua aceitando os comandos existentes para abrir a HUD,
 colocá-la em repouso e verificar se a janela segue aberta.
@@ -224,7 +224,7 @@ por perfil. **Uma vez, na instalação:**
 2. A HUD vai cair na tela de configuração. Preencha a URL da API e o `HUD_TOKEN`.
 3. Pronto. O perfil fica em disco e os despertares seguintes caem direto na tela.
 
-### "Jarvis, iniciar": baixar o modelo
+### "Jarvis": baixar o modelo
 
 ```powershell
 .\baixar-modelo.ps1
@@ -235,8 +235,8 @@ O script baixa whisper.cpp e o modelo base multilingue (cerca de 145 MB) para `f
 mesmo quando a tarefa agendada inicia o agente com outro diretório atual.
 
 **Sem os arquivos nada quebra**: o agente avisa que a voz offline está indisponível; os comandos
-remotos para abrir a HUD continuam valendo. A voz só aceita a frase completa `"Jarvis, iniciar"`;
-a confiança configurada é verificada nos tokens de `"iniciar"`, enquanto uma única grafia
+remotos para abrir a HUD continuam valendo. A voz só aceita a palavra isolada `"Jarvis"`;
+a confiança configurada é verificada nos tokens dela, enquanto uma única grafia
 alternativa observada para o nome ("Jardes") é normalizada para lidar com a limitação do modelo.
 
 ### Energia
@@ -244,7 +244,7 @@ alternativa observada para o nome ("Jardes") é normalizada para lidar com a lim
 Com a tela aberta o agente pede ao Windows que não apague o monitor nem suspenda a máquina — um
 HUD que apaga no meio de uma frase não serve para nada. Em repouso, com
 `energia.manterPcAcordado=true` (o padrão), só impede a suspensão: o monitor apaga normalmente,
-mas o PC continua aguardando a frase de ativação.
+mas o PC continua aguardando a palavra de ativação.
 
 Para conferir:
 
@@ -266,7 +266,7 @@ o pedido de energia vale por thread e some junto com ela.
 | `app '...' ignorado: caminho inválido` | no `.properties` a contrabarra é escape: use `C:\\Pasta\\x.exe` ou `C:/Pasta/x.exe` |
 | *"não está na lista de apps deste PC"* | falta a linha `app.<nome>` ou o `.exe` mudou de lugar |
 | o Jarvis diz que o PC está offline | o agente não está rodando: veja o log e `Get-ScheduledTask` |
-| *"Jarvis, iniciar"* não funciona | falta o modelo: rode `.\baixar-modelo.ps1` e veja o log na partida |
+| *"Jarvis"* não funciona | falta o modelo: rode `.\baixar-modelo.ps1` e veja o log na partida |
 | a tela abre na configuração | é a primeira vez nesse perfil do Chrome; preencha URL e `HUD_TOKEN` uma vez |
 | a tela abre muda | o Chrome só libera autoplay com a flag que o agente passa; abrindo a HUD à mão, clique uma vez |
 | `não consegui abrir o microfone` | outro programa o tomou, ou falta permissão em Privacidade > Microfone |

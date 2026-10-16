@@ -12,7 +12,7 @@ import dev.jarvis.agente.Configuracao;
 
 @EnabledIfSystemProperty(named = "teste.voz", matches = "true")
 class IntegracaoVozTest {
-    @Test void reconheceFraseCompletaComModeloReal() throws Exception {
+    @Test void reconhecePalavraDeChamadoComModeloReal() throws Exception {
         Path runtime = Path.of(System.getProperty("teste.runtime"));
         var config = new Configuracao(URI.create("https://api.test"), "t", URI.create("https://hud.test"), Map.of(),
                 true, true, "", 18, .6, "app", true, runtime.resolve("ferramentas/whisper/whisper-cli.exe"),

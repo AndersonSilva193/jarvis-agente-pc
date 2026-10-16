@@ -20,15 +20,15 @@ class ReconhecedorDeVozTest {
         tokens.append(']');
         return "{\"transcription\":[{\"text\":\"" + texto + "\",\"tokens\":" + tokens + "}]}";
     }
-    @Test void aceitaSomenteFraseInteira() {
-        assertTrue(ReconhecedorDeVoz.interpretar(json("Jarvis, iniciar!", .9), .6).isPresent());
-        for (String texto : new String[]{"iniciar", "jarvis inicia", "jarvis iniciar agora", "nao jarvis iniciar", ""})
+    @Test void aceitaSomenteAPalavraDeChamado() {
+        assertTrue(ReconhecedorDeVoz.interpretar(json("Jarvis!", .9), .6).isPresent());
+        for (String texto : new String[]{"jarvi", "jarvis iniciar", "jarvis agora", "nao jarvis", ""})
             assertTrue(ReconhecedorDeVoz.interpretar(json(texto, .9), .6).isEmpty(), texto);
-        assertTrue(ReconhecedorDeVoz.interpretar(json("jarvis iniciar", .3), .6).isEmpty());
-        var variacaoReconhecida = ReconhecedorDeVoz.interpretar(json("Jardes, iniciar.", .2, .9), .6);
+        assertTrue(ReconhecedorDeVoz.interpretar(json("jarvis", .3), .6).isEmpty());
+        var variacaoReconhecida = ReconhecedorDeVoz.interpretar(json("Jardes.", .9), .6);
         assertTrue(variacaoReconhecida.isPresent());
         assertEquals(.9, variacaoReconhecida.orElseThrow().confianca(), .001);
-        assertTrue(ReconhecedorDeVoz.interpretar(json("Jarvis iniciar", .9, .59), .6).isEmpty());
+        assertTrue(ReconhecedorDeVoz.interpretar(json("Jarvis", .59), .6).isEmpty());
         assertTrue(ReconhecedorDeVoz.interpretar("{}", .6).isEmpty());
         assertTrue(ReconhecedorDeVoz.interpretar("quebrado", .6).isEmpty());
     }

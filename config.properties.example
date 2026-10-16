@@ -8,12 +8,12 @@ urlApi=https://jarvis.barberagendaonline.store
 # O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
 pcToken=
 
-# A tela do Jarvis: é ela que a ação abrir_hud abre e que "Jarvis, iniciar" acende.
+# A tela do Jarvis: é ela que a ação abrir_hud abre e que a palavra "Jarvis" acende.
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app
 
 # ---- Despertar ----
-# Duas palmas ou "Jarvis, iniciar" abrem a tela, e o Jarvis se apresenta falando.
+# Duas palmas ou a palavra "Jarvis" abrem a tela, e o Jarvis se apresenta falando.
 # Os dois gatilhos dividem o mesmo microfone e valem ao mesmo tempo.
 # O reconhecimento é TODO offline, aqui no PC: nenhum áudio sai desta máquina antes do gatilho.
 # Depois que a tela abre, o agente SOLTA o microfone — quem escuta passa a ser a própria HUD.
@@ -21,7 +21,7 @@ urlHud=https://jarvis-hud-gamma.vercel.app
 # Duas palmas com 200 a 700 ms entre elas. Tres ou mais sao ignoradas: e aplauso, nao chamado.
 gatilho.palmas=true
 
-# "Jarvis, iniciar" usa whisper.cpp e modelo base multilingue, todos locais.
+# A palavra de chamado "Jarvis" usa whisper.cpp e modelo base multilingue, todos locais.
 # Instale com baixar-modelo.ps1 (~145 MB).
 gatilho.voz=true
 
@@ -39,7 +39,7 @@ palmas.sensibilidadeDb=18
 # Caminhos relativos a este config.properties, nunca ao diretorio atual.
 voz.executavel=ferramentas/whisper/whisper-cli.exe
 voz.modelo=modelos/ggml-base.bin
-# Media minima das probabilidades dos tokens da palavra "iniciar" no Whisper.
+# Media minima das probabilidades dos tokens da palavra "Jarvis" no Whisper.
 voz.probabilidadeMinima=0.6
 
 # Como a tela abre:
