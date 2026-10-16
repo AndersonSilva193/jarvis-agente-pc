@@ -6,6 +6,9 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.logging.Logger;
 
+import dev.jarvis.agente.gatilho.Despertador;
+import dev.jarvis.agente.gatilho.JanelaDaHud;
+
 /**
  * Traduz a ação que a VPS mandou em um programa do Windows.
  *
@@ -37,9 +40,14 @@ final class ExecutorDeAcoes {
             "(New-Object -ComObject WScript.Shell).SendKeys([char]173)";
 
     private final Configuracao config;
+    private final JanelaDaHud janela;
+    /** Nulo quando o despertar está desligado: aí as ações dele respondem que não há o que fazer. */
+    private final Despertador despertador;
 
-    ExecutorDeAcoes(Configuracao config) {
+    ExecutorDeAcoes(Configuracao config, JanelaDaHud janela, Despertador despertador) {
         this.config = config;
+        this.janela = janela;
+        this.despertador = despertador;
     }
 
     Resultado executar(ComandoRecebido comando) throws InterruptedException {
@@ -56,6 +64,8 @@ final class ExecutorDeAcoes {
                 case "desligar" -> agendarShutdown(comando, "/s", "desligar");
                 case "reiniciar" -> agendarShutdown(comando, "/r", "reiniciar");
                 case "cancelar_desligamento" -> cancelarDesligamento(comando);
+                case "modo_repouso" -> modoRepouso(comando);
+                case "falso_positivo" -> falsoPositivo(comando);
                 default -> Resultado.falhou(comando, "não conheço a ação '" + comando.acao() + "'");
             };
         } catch (InterruptedException e) {
@@ -90,18 +100,43 @@ final class ExecutorDeAcoes {
         return Resultado.feito(comando, "abri no navegador");
     }
 
+    /**
+     * Abre a tela do Jarvis.
+     *
+     * <p>Delega à {@link JanelaDaHud}, a mesma que o despertar por palmas usa. Dois lugares
+     * abrindo o Chrome com conjuntos de flags diferentes acabariam divergindo — e o perfil
+     * próprio, que é o que deixa o agente saber quando a janela fecha, é fácil de esquecer.
+     */
     private Resultado abrirHud(ComandoRecebido comando) throws Exception {
         if (config.urlHud() == null) {
             return Resultado.falhou(comando, "falta urlHud no config.properties deste PC");
         }
-        Path chrome = config.app("chrome");
-        if (chrome == null) {
+        if (config.app("chrome") == null) {
             return Resultado.falhou(comando, "falta app.chrome no config.properties deste PC");
         }
-        // O autoplay liberado é o que deixa a HUD falar sem alguém clicar na tela primeiro.
-        Processos.disparar(chrome.toString(), "--kiosk",
-                "--autoplay-policy=no-user-gesture-required", config.urlHud().toString());
-        return Resultado.feito(comando, "abri a HUD em tela cheia");
+        return janela.abrir()
+                ? Resultado.feito(comando, "abri a HUD em tela cheia")
+                : Resultado.feito(comando, "a HUD já estava aberta; trouxe para a frente");
+    }
+
+    /** O "Jarvis, modo repouso": fecha a tela e o agente volta a escutar o gatilho. */
+    private Resultado modoRepouso(ComandoRecebido comando) {
+        if (despertador == null) {
+            return Resultado.falhou(comando, "o despertar por palmas está desligado neste PC");
+        }
+        despertador.repousar();
+        return Resultado.feito(comando, "voltando ao repouso; escutando o gatilho de novo");
+    }
+
+    /** O "Jarvis, foi engano": conta o alarme falso e devolve o total. */
+    private Resultado falsoPositivo(ComandoRecebido comando) {
+        if (despertador == null) {
+            return Resultado.falhou(comando, "o despertar por palmas está desligado neste PC");
+        }
+        int total = despertador.falsoPositivo();
+        return Resultado.feito(comando, total == 1
+                ? "anotado: 1 alarme falso desde que liguei"
+                : "anotado: " + total + " alarmes falsos desde que liguei");
     }
 
     private Resultado bloquearTela(ComandoRecebido comando) throws Exception {

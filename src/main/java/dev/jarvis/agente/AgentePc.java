@@ -11,6 +11,11 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import java.util.logging.SimpleFormatter;
 
+import dev.jarvis.agente.gatilho.Calibrador;
+import dev.jarvis.agente.gatilho.Despertador;
+import dev.jarvis.agente.gatilho.EnergiaDoWindows;
+import dev.jarvis.agente.gatilho.JanelaDaHud;
+
 /**
  * O agente do Jarvis no PC Windows.
  *
@@ -33,8 +38,10 @@ public final class AgentePc {
     }
 
     public static void main(String[] args) throws Exception {
-        boolean autoteste = args.length > 0 && "--testar".equals(args[args.length - 1]);
-        Path arquivo = args.length > 0 && !args[0].equals("--testar")
+        String ultimo = args.length > 0 ? args[args.length - 1] : "";
+        boolean autoteste = "--testar".equals(ultimo);
+        boolean calibrar = "--calibrar".equals(ultimo);
+        Path arquivo = args.length > 0 && !args[0].startsWith("--")
                 ? Path.of(args[0])
                 : Configuracao.padrao();
         configurarLog();
@@ -55,7 +62,53 @@ public final class AgentePc {
             autotestar(config);
             return;
         }
-        rodar(new ClienteJarvis(config), new ExecutorDeAcoes(config));
+        if (calibrar) {
+            // Não fala com a VPS: é só esta máquina, este microfone e esta sala.
+            new Calibrador(config).rodar();
+            return;
+        }
+
+        ClienteJarvis cliente = new ClienteJarvis(config);
+        JanelaDaHud janela = new JanelaDaHud(config);
+        EnergiaDoWindows energia = new EnergiaDoWindows();
+        Despertador despertador = despertar(config, janela, energia, cliente);
+
+        // O primeiro shutdown hook do projeto, e ele existe por um motivo concreto: o pedido de
+        // energia ao Windows precisa ser desfeito. Sem isto, matar o agente deixaria o PC sem
+        // suspender até o próximo logon.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (despertador != null) {
+                despertador.close();
+            }
+            energia.close();
+        }, "encerrando"));
+
+        rodar(cliente, new ExecutorDeAcoes(config, janela, despertador));
+    }
+
+    /**
+     * Sobe a escuta do gatilho numa thread própria, ou devolve nulo se não há o que escutar.
+     *
+     * <p>Thread própria porque o laço principal fica 25 s parado em cada long poll — escutar
+     * microfone ali dentro significaria ouvir a sala um segundo a cada meio minuto.
+     */
+    private static Despertador despertar(Configuracao config, JanelaDaHud janela,
+            EnergiaDoWindows energia, ClienteJarvis cliente) {
+        if (!config.despertarLigado()) {
+            log.info("despertar desligado (gatilho.palmas, gatilho.voz ou urlHud)");
+            return null;
+        }
+        Despertador despertador =
+                new Despertador(config, janela, energia, cliente::pedirFala);
+        if (!despertador.temGatilho()) {
+            log.warning("despertar sem gatilho nenhum de pé; seguindo só com os comandos da VPS");
+            despertador.close();
+            return null;
+        }
+        Thread thread = new Thread(despertador, "despertador");
+        thread.setDaemon(true);
+        thread.start();
+        return despertador;
     }
 
     /**

@@ -108,6 +108,45 @@ final class ClienteJarvis {
         }
     }
 
+    /**
+     * Pede à VPS que a tela aberta diga uma frase.
+     *
+     * <p>É a <b>única</b> chamada em que o agente fala sem ter recebido um comando antes: o
+     * gatilho disparou e a HUD já estava na frente do usuário, então em vez de abrir outra janela
+     * o Jarvis só responde que já está ali.
+     *
+     * <p>Vai a <b>chave</b> de uma frase, nunca o texto. O que a tela diz é decidido na VPS: este
+     * arquivo de configuração mora numa máquina de mesa, e um pcToken vazado não pode virar
+     * microfone aberto para a sala.
+     *
+     * <p>Não lança e não tenta de novo: é um agrado, não um comando. Falhou, o usuário vê a
+     * janela vindo para a frente do mesmo jeito.
+     */
+    void pedirFala(String chave) {
+        ObjectNode corpo = json.createObjectNode();
+        corpo.put("frase", chave);
+        try {
+            HttpRequest requisicao = autenticar(HttpRequest.newBuilder(uri("/api/pc/falar")))
+                    .timeout(TIMEOUT_RESULTADO)
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(corpo)))
+                    .build();
+            HttpResponse<String> resposta =
+                    http.send(requisicao, HttpResponse.BodyHandlers.ofString());
+            if (resposta.statusCode() == 409) {
+                // A VPS não vê HUD conectada. Acontece: a janela está aberta mas o SSE caiu.
+                log.info("pedi a fala '" + chave + "', mas a VPS não vê tela conectada");
+            } else if (resposta.statusCode() != 204) {
+                log.warning("a VPS recusou a fala '" + chave + "' com HTTP "
+                        + resposta.statusCode());
+            }
+        } catch (IOException e) {
+            log.warning("não consegui pedir a fala '" + chave + "': " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private HttpRequest.Builder autenticar(HttpRequest.Builder requisicao) {
         // No cabeçalho, nunca na query: na query o token iria para o log do nginx.
         return requisicao.header("Authorization", "Bearer " + config.pcToken());

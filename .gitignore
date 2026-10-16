@@ -7,3 +7,6 @@ config.properties
 .idea/
 *.iml
 .vscode/
+
+# O modelo do Vosk: ~45 MB baixados por baixar-modelo.ps1, nunca versionados.
+modelos/

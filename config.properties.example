@@ -8,8 +8,46 @@ urlApi=https://jarvis.barberagendaonline.store
 # O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
 pcToken=
 
-# A tela do Jarvis, que a ação abrir_hud abre no Chrome em modo kiosk. Também só https.
+# A tela do Jarvis: é ela que a ação abrir_hud abre e é ela que o despertar por palmas acende.
+# Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app
+
+# ---- Despertar ----
+# Duas palmas, ou "Jarvis, iniciar", abrem a tela e o Jarvis se apresenta falando.
+# O reconhecimento é TODO offline, aqui no PC: nenhum áudio sai desta máquina antes do gatilho.
+# Depois que a tela abre, o agente SOLTA o microfone — quem escuta passa a ser a própria HUD.
+
+# Duas palmas acordam o Jarvis.
+gatilho.palmas=true
+
+# "Jarvis, iniciar" acorda o Jarvis. Precisa do modelo do Vosk em modelos/ (rode
+# baixar-modelo.ps1, ~45 MB, uma vez só). Sem o modelo, o agente avisa no log e segue só com as
+# palmas — nada quebra.
+gatilho.voz=true
+
+# Parte do nome do microfone, sem diferenciar maiúsculas (ex.: "Yeti", "Realtek").
+# Vazio usa o microfone padrão do Windows.
+microfone=
+
+# Quanto a palma precisa passar do ruído de fundo, em dB.
+#
+# NÃO CHUTE ESTE NÚMERO: ele depende da sua sala, da distância até o microfone e do ganho dele.
+# Meça com:   java -jar jarvis-agente-pc.jar --calibrar
+# Disparo demais? suba. Não dispara? baixe.
+palmas.sensibilidadeDb=18
+
+# O quanto o Vosk precisa ter certeza para aceitar "Jarvis, iniciar" (0 a 1).
+# Mais alto = menos engano e mais repetição; mais baixo = o contrário.
+voz.confiancaMinima=0.7
+
+# Como a tela abre:
+#   app   - janela sem barra de endereço, em tela cheia (dá para sair com Alt+F4)
+#   kiosk - tela cheia travada
+hud.modo=app
+
+# Em repouso, impedir o PC de suspender. O monitor continua apagando normalmente; o que isto
+# evita é o PC dormir e parar de ouvir as palmas. Confira com:  powercfg /requests
+energia.manterPcAcordado=true
 
 # ---- Apps liberados ----
 # app.<nome>=<caminho do .exe>
@@ -20,6 +58,8 @@ urlHud=https://jarvis-hud-gamma.vercel.app
 # Caminho que não existe mais é ignorado na partida, com aviso no log.
 #
 # O nome aceita letras minúsculas, números, _, . e -.
+#
+# app.chrome é obrigatório para o despertar: é o Chrome que abre a tela.
 app.chrome=C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe
 app.vscode=C:\\Users\\SEU_USUARIO\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe
 app.intellij=C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe

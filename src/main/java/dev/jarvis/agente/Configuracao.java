@@ -19,13 +19,41 @@ import java.util.logging.Logger;
  *             cabeçalho {@code X-Pc-Apps} de cada consulta; o caminho nunca sai daqui. É isso que
  *             impede o modelo de escolher o que executar: ele escolhe um nome desta lista, ou
  *             nada.
+ * @param gatilhoPalmas   se as duas palmas acordam o Jarvis
+ * @param gatilhoVoz      se "Jarvis, iniciar" acorda o Jarvis; sem o modelo em {@code modelos/}
+ *                        isto se desliga sozinho, com aviso no log
+ * @param microfone       parte do nome do microfone; vazio usa o padrão do Windows
+ * @param palmasSensibilidadeDb quanto a palma precisa passar do ruído de fundo. Mede-se com
+ *                        {@code --calibrar}, porque depende da sala e da distância
+ * @param vozConfiancaMinima  o mínimo que o Vosk precisa ter certeza para aceitar a frase
+ * @param hudModo         {@code app} (janela sem barra) ou {@code kiosk} (tela cheia travada)
+ * @param manterPcAcordado  em repouso, impedir a suspensão para as palmas continuarem valendo
  */
-record Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps) {
+public record Configuracao(
+        URI urlApi,
+        String pcToken,
+        URI urlHud,
+        Map<String, Path> apps,
+        boolean gatilhoPalmas,
+        boolean gatilhoVoz,
+        String microfone,
+        double palmasSensibilidadeDb,
+        double vozConfiancaMinima,
+        String hudModo,
+        boolean manterPcAcordado) {
 
     private static final Logger log = Logger.getLogger(Configuracao.class.getName());
     private static final String PREFIXO_APP = "app.";
     /** O mesmo formato que o PcService aceita do outro lado. */
     private static final String NOME_DE_APP = "[a-z0-9][a-z0-9_.-]{0,31}";
+
+    /** Onde o modelo do Vosk é procurado; ver {@code baixar-modelo.ps1}. */
+    public static final Path PASTA_DOS_MODELOS = Path.of("modelos");
+
+    public static final double SENSIBILIDADE_PADRAO = 18;
+    public static final double CONFIANCA_PADRAO = 0.7;
+    public static final String MODO_APP = "app";
+    public static final String MODO_KIOSK = "kiosk";
 
     /** O arquivo ao lado do jar, usado quando nenhum caminho é passado na linha de comando. */
     static Path padrao() {
@@ -48,7 +76,22 @@ record Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> ap
         }
         URI urlHud = urlHttps(propriedades, "urlHud", false);
 
-        return new Configuracao(urlApi, pcToken, urlHud, apps(propriedades));
+        String modo = texto(propriedades, "hud.modo").toLowerCase(Locale.ROOT);
+        if (!MODO_APP.equals(modo) && !MODO_KIOSK.equals(modo)) {
+            if (!modo.isEmpty()) {
+                log.warning("hud.modo '" + modo + "' não existe; usando " + MODO_APP);
+            }
+            modo = MODO_APP;
+        }
+
+        return new Configuracao(urlApi, pcToken, urlHud, apps(propriedades),
+                booleano(propriedades, "gatilho.palmas", true),
+                booleano(propriedades, "gatilho.voz", true),
+                texto(propriedades, "microfone"),
+                decimal(propriedades, "palmas.sensibilidadeDb", SENSIBILIDADE_PADRAO, 3, 60),
+                decimal(propriedades, "voz.confiancaMinima", CONFIANCA_PADRAO, 0, 1),
+                modo,
+                booleano(propriedades, "energia.manterPcAcordado", true));
     }
 
     /**
@@ -94,16 +137,67 @@ record Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> ap
     }
 
     /** Os nomes para o cabeçalho X-Pc-Apps, em ordem e separados por vírgula. */
-    String cabecalhoDeApps() {
+    public String cabecalhoDeApps() {
         return String.join(",", apps.keySet());
     }
 
-    Path app(String nome) {
+    public Path app(String nome) {
         return apps.get(nome == null ? "" : nome.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** Verdadeiro quando pelo menos um gatilho está ligado e há HUD para abrir. */
+    public boolean despertarLigado() {
+        return (gatilhoPalmas || gatilhoVoz) && urlHud != null;
+    }
+
+    public boolean kiosk() {
+        return MODO_KIOSK.equals(hudModo);
     }
 
     private static String texto(Properties propriedades, String chave) {
         return propriedades.getProperty(chave, "").trim();
+    }
+
+    /**
+     * Um booleano do arquivo.
+     *
+     * <p>Valor torto avisa e cai no padrão, nunca derruba o agente — mesma política dos apps: um
+     * erro de digitação numa linha não pode deixar o PC sem braço.
+     */
+    private static boolean booleano(Properties propriedades, String chave, boolean padrao) {
+        String valor = texto(propriedades, chave).toLowerCase(Locale.ROOT);
+        if (valor.isEmpty()) {
+            return padrao;
+        }
+        if (valor.equals("true") || valor.equals("sim") || valor.equals("1")) {
+            return true;
+        }
+        if (valor.equals("false") || valor.equals("nao") || valor.equals("não") || valor.equals("0")) {
+            return false;
+        }
+        log.warning(chave + " = '" + valor + "' não é true nem false; usando " + padrao);
+        return padrao;
+    }
+
+    /** Um número do arquivo, preso entre mínimo e máximo. */
+    private static double decimal(Properties propriedades, String chave, double padrao,
+            double minimo, double maximo) {
+        String valor = texto(propriedades, chave).replace(',', '.');
+        if (valor.isEmpty()) {
+            return padrao;
+        }
+        try {
+            double numero = Double.parseDouble(valor);
+            if (numero < minimo || numero > maximo) {
+                log.warning(chave + " = " + valor + " está fora de [" + minimo + ", " + maximo
+                        + "]; usando " + padrao);
+                return padrao;
+            }
+            return numero;
+        } catch (NumberFormatException e) {
+            log.warning(chave + " = '" + valor + "' não é número; usando " + padrao);
+            return padrao;
+        }
     }
 
     /** Só https, sempre: o pcToken viaja no cabeçalho e em texto claro vazaria na rede. */

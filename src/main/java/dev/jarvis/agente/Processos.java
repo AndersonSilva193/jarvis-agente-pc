@@ -17,11 +17,11 @@ import java.util.concurrent.TimeUnit;
  * Onde o PowerShell é inevitável (teclas de mídia e bateria), o {@code -Command} é uma
  * <b>constante</b> escolhida por {@code switch}, nunca algo concatenado.
  */
-final class Processos {
+public final class Processos {
 
     /** O que volta de um programa: o código de saída e o que ele falou. */
-    record Saida(int codigo, String texto) {
-        boolean ok() {
+    public record Saida(int codigo, String texto) {
+        public boolean ok() {
             return codigo == 0;
         }
     }
@@ -32,7 +32,7 @@ final class Processos {
     private Processos() {
     }
 
-    static Saida rodar(String... argumentos) throws IOException, InterruptedException {
+    public static Saida rodar(String... argumentos) throws IOException, InterruptedException {
         Process processo = new ProcessBuilder(List.of(argumentos))
                 .redirectErrorStream(true)
                 .start();
@@ -48,17 +48,34 @@ final class Processos {
     }
 
     /** Dispara e não espera — para o que abre janela e fica aberto (navegador, editor, player). */
-    static void disparar(String... argumentos) throws IOException {
+    public static void disparar(String... argumentos) throws IOException {
         new ProcessBuilder(List.of(argumentos)).start();
     }
 
+    /**
+     * Como o {@link #disparar}, mas devolvendo o {@link Process}.
+     *
+     * <p>Existe para a {@code JanelaDaHud}: com o processo na mão dá para saber que a janela
+     * fechou, por {@code onExit()}, que é como o agente volta ao repouso. O {@code disparar}
+     * descarta o processo e não serviria.
+     *
+     * <p>A saída é descartada no {@code NUL}; sem isso, o Chrome enchendo o buffer de stderr
+     * travaria sozinho depois de alguns minutos, com a janela aberta e ninguém lendo.
+     */
+    public static Process iniciar(String... argumentos) throws IOException {
+        return new ProcessBuilder(List.of(argumentos))
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+    }
+
     /** Um PowerShell com um {@code -Command} que tem de ser constante. Ver o javadoc da classe. */
-    static Saida powershell(String comandoConstante) throws IOException, InterruptedException {
+    public static Saida powershell(String comandoConstante) throws IOException, InterruptedException {
         return rodar("powershell", "-NoProfile", "-NonInteractive", "-Command", comandoConstante);
     }
 
     /** A mensagem volta ao modelo e vira token, então o que o Windows falou vem cortado. */
-    static String cortar(String texto) {
+    public static String cortar(String texto) {
         String limpo = texto == null ? "" : texto.replaceAll("\\s+", " ").trim();
         return limpo.length() <= MAX_TEXTO ? limpo : limpo.substring(0, MAX_TEXTO) + "…";
     }
