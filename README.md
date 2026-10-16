@@ -154,9 +154,27 @@ detector fica surdo por 5 segundos.
 
 Não é só volume. Uma palma é um estouro **curto e agudo**, e são três filtros juntos que a separam
 do resto: altura acima do ruído de fundo (que é móvel, medido continuamente — a mesma sala tem
-piso diferente com o ar ligado e de madrugada), forma do pico (sobe ao máximo em até 5 ms e volta
-ao silêncio em até 80 ms) e timbre (muito agudo). A batida na mesa e a porta batendo são graves e
-sobem mais devagar; a nota de música demora a cair.
+piso diferente com o ar ligado e de madrugada), forma do pico (sobe ao máximo em até 5 ms e acaba
+em até 80 ms) e timbre (muito agudo). A batida na mesa e a porta batendo são graves e sobem mais
+devagar; a nota de música demora a cair.
+
+O "acabou" tem uma sutileza que custou um bug: ele é o que vier primeiro entre *chegar ao piso da
+sala* e *cair 20 dB do próprio máximo*. Só a primeira regra existia, e ela embute um piso
+realista — perto de -60 dBFS, como nas cenas de `src/test/resources`. Microfone com supressão de
+ruído entrega **silêncio digital** entre os sons (piso de -97 dBFS nesta máquina, nos dois
+microfones), e aí "voltar ao silêncio" passava a exigir uma queda de 90 dB, que não cabe em 80 ms.
+O efeito era invertido e confuso: palma forte era recusada, palma fraca passava — porque a fraca
+tinha menos a cair. Medir a queda a partir do próprio máximo tira a dependência do piso.
+
+### Qual microfone
+
+Há duas entradas de captura nesta máquina: `USB Microphone` (o mic de mesa) e
+`High Definition Audio Device` (a entrada onboard, do fone). Com `microfone=` vazio o agente usa o
+**padrão do Windows**, que troca sem aviso — e o gatilho quebra sem motivo aparente, porque os dois
+microfones têm sensibilidade bem diferente. Por isso o `config.properties` fixa o de mesa pelo
+nome. A busca é por pedaço do nome, sem diferenciar maiúsculas.
+
+### A sensibilidade
 
 O único número que depende da sua sala é `palmas.sensibilidadeDb`, e ele se mede:
 
@@ -171,7 +189,10 @@ Pare o agente antes: só uma cópia roda por vez (há um *lock* em
 o menor que reconheceu todos os pares, com margem. Ela **não** escreve no `config.properties` —
 valide contra conversa e ruído antes de salvar o valor na mão. O áudio fica só na memória.
 
-Se a tela abrir sozinha, suba o valor de 2 em 2; se as palmas não forem reconhecidas, desça.
+Se a tela abrir sozinha, suba o valor de 2 em 2; se as palmas não forem reconhecidas, desça. Há um
+teto prático: cada disparo loga quantos dB a palma passou do ruído, e subir o limiar acima desse
+número passa a exigir palma forte. Neste PC, com o mic de mesa, uma palma leve mede ~15 dB acima do
+ruído e uma palma firme passa de 70 — o limiar de 12 aceita as duas.
 
 ### Os dois estados
 

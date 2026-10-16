@@ -25,13 +25,15 @@ gatilho.palmas=true
 # Instale com baixar-modelo.ps1 (~145 MB).
 gatilho.voz=true
 
-# Parte do nome do microfone, sem diferenciar maiúsculas (ex.: "Yeti", "Realtek").
-# Vazio usa o microfone padrão do Windows.
+# Parte do nome do microfone, sem diferenciar maiúsculas (ex.: "Yeti", "Realtek", "USB Microphone").
+# Vazio usa o microfone padrão do Windows -- que troca sem aviso quando voce liga um fone, e os
+# microfones tem sensibilidade bem diferente. Com palmas ligadas, vale fixar o seu pelo nome.
 microfone=
 
-# Quanto a palma precisa passar do ruido de fundo, em dB. Depende da sala e da distancia:
-# meca o seu com --calibrar (veja o README). Se a tela abrir sozinha, suba de 2 em 2;
-# se as palmas nao forem reconhecidas, desca.
+# Quanto a palma precisa passar do ruido de fundo, em dB. Depende da sala, do microfone e da
+# distancia: meca o seu com --calibrar (veja o README). Se a tela abrir sozinha, suba de 2 em 2;
+# se as palmas nao forem reconhecidas, desca. Cada disparo loga quantos dB a palma passou do
+# ruido -- subir o limiar acima desse numero passa a exigir palma forte.
 palmas.sensibilidadeDb=18
 
 # Caminhos relativos a este config.properties, nunca ao diretorio atual.

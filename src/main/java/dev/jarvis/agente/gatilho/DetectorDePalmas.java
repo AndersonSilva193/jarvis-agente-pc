@@ -49,6 +49,20 @@ final class DetectorDePalmas {
     /** "Voltou ao silêncio" = chegou a este tanto acima do ruído. */
     static final double FIM_DO_PICO_DB = 6;
     /**
+     * A queda a partir do máximo que também encerra o pico, quando o ruído é baixo demais.
+     *
+     * <p>Sozinho, o {@link #FIM_DO_PICO_DB} assume um piso de sala de verdade — algo perto de
+     * -60 dBFS, que é o das cenas de {@code src/test/resources}. Microfone com supressão de ruído
+     * entrega silêncio digital entre os sons, piso perto de -97 dBFS, e aí "voltar ao silêncio"
+     * passa a exigir uma queda de 90 dB: com o decaimento de uma palma, isso leva mais de 100 ms
+     * e estoura o orçamento de {@value #DECAIMENTO_MAXIMO_MS} ms <b>sempre</b>. O detector então
+     * recusava justamente as palmas fortes, e aceitava só as fracas, que tinham menos a cair.
+     *
+     * <p>Medir a queda a partir do próprio máximo tira essa dependência: a palma acaba quando
+     * acabou, com piso de -60 ou de -97.
+     */
+    static final double QUEDA_QUE_ENCERRA_O_PICO_DB = 20;
+    /**
      * Cruzamentos por zero por amostra, na janela do pico.
      *
      * <p>0,25 equivale a um conteúdo dominante perto de 2 kHz. A palma é um estalo cheio de agudo
@@ -96,6 +110,7 @@ final class DetectorDePalmas {
     }
 
     private final double sensibilidadeDb;
+    private final double quedaQueEncerraDb;
 
     /** Histórico curto de amostras, para medir o timbre depois que o pico passou (256 ms). */
     private final short[] historico = new short[4096];
@@ -122,7 +137,13 @@ final class DetectorDePalmas {
     }
 
     DetectorDePalmas(double sensibilidadeDb) {
+        this(sensibilidadeDb, QUEDA_QUE_ENCERRA_O_PICO_DB);
+    }
+
+    /** Com a queda explícita: é como a varredura experimenta valores sobre o mesmo áudio. */
+    DetectorDePalmas(double sensibilidadeDb, double quedaQueEncerraDb) {
         this.sensibilidadeDb = sensibilidadeDb;
+        this.quedaQueEncerraDb = quedaQueEncerraDb;
     }
 
     void reiniciar() {
@@ -188,7 +209,9 @@ final class DetectorDePalmas {
     /** A forma do pico: onde começou, onde foi o máximo e quando voltou ao silêncio. */
     private void avancarPico(long agoraMs, double db) {
         boolean alto = db >= ruidoDb + sensibilidadeDb;
-        boolean voltouAoSilencio = db <= ruidoDb + FIM_DO_PICO_DB;
+        // O que vier primeiro: chegar ao piso da sala, ou cair o bastante do próprio máximo.
+        boolean voltouAoSilencio = db <= ruidoDb + FIM_DO_PICO_DB
+                || (fase != Fase.PARADO && db <= picoDb - quedaQueEncerraDb);
 
         switch (fase) {
             case PARADO -> {
@@ -268,8 +291,23 @@ final class DetectorDePalmas {
         return aceito;
     }
 
+    /**
+     * Anota uma palma — e ignora o que é a mesma palma de novo.
+     *
+     * <p>Encerrar o pico pela queda a partir do máximo faz o detector voltar a escutar enquanto a
+     * reverberação ainda está acima do limiar. Esse rabo tem ataque instantâneo e timbre parecido,
+     * então ele se registraria como uma segunda palma colada na primeira — e, pior, o par morreria
+     * em {@link #conferirPadrao}, que descarta tudo quando o intervalo é menor que
+     * {@value #INTERVALO_MINIMO_MS} ms. Resultado: a palma de verdade destruía o próprio chamado.
+     *
+     * <p>Duas batidas mais próximas que o intervalo mínimo nunca foram um chamado válido. A
+     * diferença é que agora a segunda é <b>descartada</b> em vez de anular a primeira.
+     */
     private void registrarPalma(long emMs, double nivelDb) {
         if (emMs < surdoAteMs) {
+            return;
+        }
+        if (!palmas.isEmpty() && emMs - palmas.getLast().emMs() < INTERVALO_MINIMO_MS) {
             return;
         }
         palmas.add(new Palma(emMs, nivelDb));

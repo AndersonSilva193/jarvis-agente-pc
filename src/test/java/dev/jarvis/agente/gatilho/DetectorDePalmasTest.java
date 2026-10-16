@@ -117,6 +117,48 @@ class DetectorDePalmasTest {
         org.junit.jupiter.api.Assertions.assertEquals(1, disparos);
     }
 
+    @Test
+    @DisplayName("palma forte dispara mesmo com microfone que entrega silêncio digital")
+    void palmaForteEmSilencioDigitalDispara() {
+        // A regressão que nenhuma cena com ruído pegava: medir o fim do pico só contra o piso
+        // funciona a -60 dBFS e é impossível a -97, onde "voltar ao silêncio" exige cair 90 dB.
+        short[] pcm = GeradorDeWavDeTeste.duasPalmasEmSilencioDigital();
+        DetectorDePalmas detector = new DetectorDePalmas(SENSIBILIDADE_PADRAO);
+        int pedaco = DetectorDePalmas.TAXA * 20 / 1000;
+        short[] bloco = new short[pedaco];
+        Optional<Disparo> disparo = Optional.empty();
+        for (int i = 0; i < pcm.length && disparo.isEmpty(); i += pedaco) {
+            int quantas = Math.min(pedaco, pcm.length - i);
+            System.arraycopy(pcm, i, bloco, 0, quantas);
+            disparo = detector.alimentar(bloco, quantas);
+        }
+
+        assertTrue(disparo.isPresent(),
+                "a palma forte é a que tem MAIS a cair; era justamente ela que era recusada");
+    }
+
+    @Test
+    @DisplayName("o rabo da própria palma não anula o par")
+    void reverberacaoNaoAnulaOPar() {
+        // Encerrar o pico pela queda a partir do máximo faz o detector voltar a escutar com a
+        // reverberação ainda alta. Se esse rabo virasse uma palma, o intervalo ficaria abaixo do
+        // mínimo e conferirPadrao() descartaria o par inteiro: a palma destruiria o chamado.
+        short[] pcm = GeradorDeWavDeTeste.duasPalmasEmSilencioDigital();
+        DetectorDePalmas detector = new DetectorDePalmas(SENSIBILIDADE_PADRAO);
+        int disparos = 0;
+        int pedaco = DetectorDePalmas.TAXA * 20 / 1000;
+        short[] bloco = new short[pedaco];
+        for (int i = 0; i < pcm.length; i += pedaco) {
+            int quantas = Math.min(pedaco, pcm.length - i);
+            System.arraycopy(pcm, i, bloco, 0, quantas);
+            if (detector.alimentar(bloco, quantas).isPresent()) {
+                disparos++;
+            }
+        }
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, disparos, "um chamado, um disparo");
+    }
+
     @Test void resetDescartaPalmaAnteriorEReaprendeAmbiente() throws Exception {
         DetectorDePalmas detector = new DetectorDePalmas(18);
         short[] primeira = ler("uma-palma.wav");

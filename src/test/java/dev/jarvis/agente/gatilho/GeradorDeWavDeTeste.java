@@ -87,6 +87,23 @@ final class GeradorDeWavDeTeste {
         return paraPcm(trilha);
     }
 
+    /**
+     * O mesmo par de palmas, mas num silêncio digital — o que um microfone com supressão de ruído
+     * entrega entre os sons.
+     *
+     * <p>Esta cena existe por um bug real: o fim do pico era medido só contra o piso de ruído, e
+     * com piso de silêncio digital "voltar ao silêncio" passava a exigir uma queda de 90 dB, que
+     * não cabe em {@value DetectorDePalmas#DECAIMENTO_MAXIMO_MS} ms. Nas outras cenas, de piso
+     * -60 dBFS, o detector passava; no microfone de verdade ele recusava toda palma forte e
+     * aceitava só as fracas, que tinham menos a cair. Nenhuma cena com ruído conseguia pegar isso.
+     */
+    static short[] duasPalmasEmSilencioDigital() {
+        double[] trilha = new double[TAXA * 2500 / 1000];
+        palma(trilha, 600);
+        palma(trilha, 950);
+        return paraPcm(trilha);
+    }
+
     // ------------------------------------------------------------- ingredientes
 
     /** Uma sala vazia: só o ruído de fundo. */
