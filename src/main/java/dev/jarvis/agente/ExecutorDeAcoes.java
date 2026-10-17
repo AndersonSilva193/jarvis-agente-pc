@@ -61,6 +61,10 @@ final class ExecutorDeAcoes {
                 case "volume" -> volume(comando);
                 case "captura_tela" -> capturaTela(comando);
                 case "criar_arquivo" -> new CriadorDeArquivo(config.pastaArquivos()).criar(comando);
+                case "listar_arquivos" -> Resultado.comDados(comando,
+                        new CatalogoDeArquivos(config.pastaArquivos()).listar(comando.dados()));
+                case "ler_arquivo" -> Resultado.comDados(comando,
+                        new LeitorDeArquivo(config.pastaArquivos()).ler(comando.dados()));
                 case "status_pc" -> Resultado.feito(comando, StatusDoPc.medir());
                 case "desligar" -> agendarShutdown(comando, "/s", "desligar");
                 case "reiniciar" -> agendarShutdown(comando, "/r", "reiniciar");
@@ -72,6 +76,19 @@ final class ExecutorDeAcoes {
         } catch (InterruptedException e) {
             throw e;
         } catch (Exception e) {
+            if (comando.acao().equals("ler_arquivo") || comando.acao().equals("listar_arquivos")) {
+                log.warning("consulta '" + comando.acao() + "' falhou: " + e.getClass().getSimpleName());
+                String motivo = e.getMessage();
+                String aviso = switch (motivo == null ? "" : motivo) {
+                    case "arquivo removido desde o cadastro" -> "arquivo removido desde o cadastro";
+                    case "arquivo alterado desde o cadastro", "arquivo alterado durante a leitura" ->
+                            "arquivo alterado desde o cadastro";
+                    case "arquivo não encontrado no catálogo" -> "arquivo não encontrado no catálogo";
+                    case "tempo de leitura excedido (12 s)" -> "tempo de leitura excedido (12 s)";
+                    default -> "não foi possível consultar o arquivo; verifique os parâmetros ou o formato";
+                };
+                return Resultado.falhou(comando, aviso);
+            }
             log.warning("ação '" + comando.acao() + "' falhou: " + e);
             return Resultado.falhou(comando, Processos.cortar(e.getMessage() == null
                     ? e.getClass().getSimpleName() : e.getMessage()));

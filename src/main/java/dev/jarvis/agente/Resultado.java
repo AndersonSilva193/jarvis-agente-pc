@@ -8,7 +8,11 @@ import java.util.Base64;
  * @param imagemBase64 só na captura de tela; a VPS corta acima de 8 MB decodificados
  */
 record Resultado(String comandoId, boolean ok, String mensagem, String imagemBase64,
-        java.nio.file.Path arquivo) {
+        java.nio.file.Path arquivo, tools.jackson.databind.JsonNode dados) {
+    Resultado(String comandoId, boolean ok, String mensagem, String imagemBase64,
+            java.nio.file.Path arquivo) {
+        this(comandoId, ok, mensagem, imagemBase64, arquivo, null);
+    }
     Resultado(String comandoId, boolean ok, String mensagem, String imagemBase64) {
         this(comandoId, ok, mensagem, imagemBase64, null);
     }
@@ -27,5 +31,9 @@ record Resultado(String comandoId, boolean ok, String mensagem, String imagemBas
 
     static Resultado comArquivo(ComandoRecebido comando, java.nio.file.Path arquivo) {
         return new Resultado(comando.id(), true, arquivo.getFileName().toString(), null, arquivo);
+    }
+
+    static Resultado comDados(ComandoRecebido comando, tools.jackson.databind.JsonNode dados) {
+        return new Resultado(comando.id(), true, "consulta concluída", null, null, dados);
     }
 }

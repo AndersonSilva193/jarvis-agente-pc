@@ -6,6 +6,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.logging.Logger;
 
 import tools.jackson.databind.JsonNode;
@@ -83,6 +84,12 @@ final class ClienteJarvis {
         corpo.put("mensagem", resultado.arquivo() != null && !arquivoEnviado
                 ? "arquivo gerado, mas upload falhou" : resultado.mensagem());
         corpo.put("arquivo", arquivoEnviado);
+        if (resultado.dados() != null) {
+            if (resultado.dados().toString().getBytes(StandardCharsets.UTF_8).length > 32_000) {
+                corpo.put("ok", false);
+                corpo.put("mensagem", "resultado estruturado acima do limite");
+            } else corpo.set("dados", resultado.dados());
+        }
         if (resultado.imagemBase64() != null) {
             corpo.put("imagemBase64", resultado.imagemBase64());
         }
@@ -101,8 +108,7 @@ final class ClienteJarvis {
                     return;
                 }
                 // 404 é comando que já venceu na VPS; insistir não traz ele de volta.
-                log.warning("a VPS recusou o resultado com HTTP " + resposta.statusCode()
-                        + ": " + resposta.body());
+                log.warning("a VPS recusou o resultado com HTTP " + resposta.statusCode());
                 if (resposta.statusCode() < 500) {
                     return;
                 }

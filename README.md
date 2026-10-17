@@ -9,6 +9,23 @@ O agente envia o arquivo à VPS em upload binário autenticado por `pcToken`, li
 DOCX e PDF usam Markdown com tabelas; XLSX aceita até 5 abas, 2.000 linhas por aba, 30 colunas
 e 20.000 células. CSV usa uma tabela e acrescenta apóstrofo a valores que poderiam virar fórmula.
 
+## Localizar e ler arquivos
+
+`listar_arquivos` importa os seis formatos suportados já presentes diretamente em `pastaArquivos`
+e retorna IDs estáveis, filtros de nome/formato, paginação e estado. O catálogo local
+`.jarvis-catalogo.properties` sobrevive a reinícios. Links, diretórios, arquivos acima de 8 MiB e
+formatos inválidos não são importados. A criação também registra o arquivo no catálogo, sem mudar
+o upload que entrega o anexo ao Telegram e à HUD.
+
+`ler_arquivo` usa o ID, nunca um caminho enviado pela VPS. Lê TXT e MD como UTF-8, DOCX com
+parágrafos e tabelas, PDF por página, XLSX com endereço/tipo/fórmula/valor em cache e CSV com
+aspas e quebras de linha. As respostas são parciais (até 12 mil caracteres e 12 segundos) e
+indicam truncamento e continuação. Fórmulas, links e conteúdo do documento são apenas dados.
+Linhas CSV e células XLSX grandes podem ser retomadas com `inicioLinha` ou `inicioCelula`; os
+fragmentos devolvidos são partes do JSON do item e avançam até completar a linha ou célula.
+PDF sem texto extraível requer OCR, ainda não implementado. Arquivo removido ou alterado desde o
+cadastro é recusado até nova avaliação. Google Sheets nativo fica fora desta versão.
+
 
 O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem comando, executa e
 devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,

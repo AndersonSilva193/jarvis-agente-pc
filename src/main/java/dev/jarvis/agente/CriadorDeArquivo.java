@@ -85,6 +85,7 @@ final class CriadorDeArquivo {
                     throw new IOException("arquivo saiu da pasta permitida");
                 if (Files.size(destino) == 0 || Files.size(destino) > LIMITE)
                     throw new IOException("arquivo vazio ou acima de 8 MiB");
+                new CatalogoDeArquivos(pasta).cadastrar(destino);
                 return Resultado.comArquivo(comando, destino);
             } catch (Exception e) {
                 Files.deleteIfExists(destino);
