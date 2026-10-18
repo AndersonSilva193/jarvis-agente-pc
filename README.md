@@ -163,7 +163,7 @@ acontecer — tempo de desistir com *"cancela"*.
 homologar com dados fictícios, ative aqui antes de ligar `COMPUTER_USE_ATIVO` na VPS. O agente
 continua sem porta aberta: busca cada ação pelo E2 e devolve a captura necessária ao provedor.
 Uma sessão por vez usa o monitor principal; coordenadas fora da captura, texto acima de 1000
-caracteres, teclas não reconhecidas e esperas acima de três segundos são recusados. Mudança na
+caracteres, teclas não reconhecidas e esperas acima de dez segundos são recusados. Mudança na
 geometria ou entrada local entre ações encerra a tarefa. O agente não executa shell nem scripts
 vindos do modelo.
 

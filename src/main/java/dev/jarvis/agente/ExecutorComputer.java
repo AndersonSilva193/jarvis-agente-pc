@@ -157,7 +157,7 @@ final class ExecutorComputer {
             case "key", "keypress" -> tecla(robo, entrada);
             case "wait" -> {
                 double segundos = entrada.path("duration").asDouble(0);
-                if (segundos < 0 || segundos > 3) throw new IllegalArgumentException();
+                if (segundos < 0 || segundos > 10) throw new IllegalArgumentException();
                 long fim = System.nanoTime() + (long) (segundos * 1_000_000_000L);
                 while (System.nanoTime() < fim) {
                     if (!ParadaLocalComputer.permite()) throw new InterruptedException();
