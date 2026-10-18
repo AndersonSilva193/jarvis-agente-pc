@@ -297,3 +297,32 @@ o pedido de energia vale por thread e some junto com ela.
 | a tela abre na configuração | é a primeira vez nesse perfil do Chrome; preencha URL e `HUD_TOKEN` uma vez |
 | a tela abre muda | o Chrome só libera autoplay com a flag que o agente passa; abrindo a HUD à mão, clique uma vez |
 | `não consegui abrir o microfone` | outro programa o tomou, ou falta permissão em Privacidade > Microfone |
+
+## Rotinas manuais no Windows
+
+Copie `rotinas.properties.example` para `rotinas.properties` e ajuste pasta e programa para
+caminhos absolutos reais do seu PC. O exemplo Maven aponta para um projeto de demonstração; o
+exemplo Claude é apenas de análise. Nenhum deles roda automaticamente. O agente lê o cadastro na
+partida, anuncia somente nome, descrição e capacidades e recusa nomes desconhecidos localmente.
+Reinicie o agente depois de alterar o cadastro.
+
+Cada rotina define `tipo`, `pasta`, `programa`, `argumentos.count`, cada `argumentos.N`,
+`timeoutSegundos`, `capacidades` e `confirmacao`. Para rotinas com código, publicação, remoção ou
+agentes, use `confirmacao=sempre`. Caminhos `.cmd` não são programas genéricos: somente o
+adaptador `maven` aceita `mvn.cmd`, com os três argumentos fixos `-q`, `-B`, `test` e caminho sem
+metacaracteres do `cmd.exe`. Para os demais tipos, aponte para `.exe` nativo.
+O Jarvis pede confirmação para toda rotina; o agente aplica novamente sua política local.
+
+`claude_leitura` requer Claude Code 2.1.248 ou superior, com `claude.exe` compatível com
+`--restricted`; roda com ferramentas de leitura,
+`dontAsk`, sem MCP, sem comandos slash e recebe o pedido por stdin. Confira também as permissões
+efetivas da conta Windows e do projeto, pois stdin não restringe o agente por si. O diário E2 fica
+em `%LOCALAPPDATA%/jarvis-agente-pc/operacoes-e2`; mantenha essa pasta entre reinícios. Um início
+registrado sem resultado conhecido vira `resultado_incerto` e nunca é repetido automaticamente.
+O cancelamento em execução é observado por consulta à VPS e pode demorar alguns segundos; somente
+processos descendentes da execução identificada são encerrados.
+
+O E2 transporta arquivos gerados por upload autenticado (até 8 MiB), capturas PNG/JPEG (até 8 MiB
+decodificados) e respostas estruturadas das consultas de arquivos (até 32 KiB). O diário local
+guarda esses resultados até a VPS confirmar o recebimento; depois remove os payloads da cópia local.
+Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a resposta HTTP se perde.

@@ -29,6 +29,11 @@ import dev.jarvis.agente.gatilho.JanelaDaHud;
  */
 public final class AgentePc {
 
+    private static final java.util.Set<String> ACOES_E2 = java.util.Set.of(
+            "abrir_app", "abrir_url", "abrir_hud", "bloquear_tela", "volume", "captura_tela",
+            "status_pc", "desligar", "reiniciar", "cancelar_desligamento", "modo_repouso",
+            "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina");
+
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
     private static final Duration ESPERA_INICIAL = Duration.ofSeconds(1);
@@ -79,6 +84,9 @@ public final class AgentePc {
         }
 
         ClienteJarvis cliente = new ClienteJarvis(config);
+        CatalogoRotinas catalogo = CatalogoRotinas.ler(arquivo.toAbsolutePath().getParent()
+                .resolve("rotinas.properties"));
+        DiarioE2 diario = new DiarioE2(pastaDeDados().resolve("operacoes-e2"));
         JanelaDaHud janela = new JanelaDaHud(config);
         EnergiaDoWindows energia = new EnergiaDoWindows();
         Despertador despertador = despertar(config, janela, energia, cliente);
@@ -93,7 +101,11 @@ public final class AgentePc {
             energia.close();
         }, "encerrando"));
 
-        rodar(cliente, new ExecutorDeAcoes(config, janela, despertador));
+        rodar(cliente, new ExecutorDeAcoes(config, janela, despertador), catalogo, diario,
+                new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
+                        System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
+                        System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
+                        .filter(java.util.Objects::nonNull).toList()));
     }
 
     /**
@@ -143,14 +155,70 @@ public final class AgentePc {
      * A VPS reiniciando ou o Wi-Fi caindo não podem virar uma enxurrada de requisições — e um
      * agente que desiste e morre seria pior, porque voltaria só no próximo logon.
      */
-    private static void rodar(ClienteJarvis cliente, ExecutorDeAcoes executor)
+    private static void rodar(ClienteJarvis cliente, ExecutorDeAcoes executor,
+            CatalogoRotinas catalogo, DiarioE2 diario, ExecutorDeRotinas rotinas)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
         while (true) {
             try {
-                ComandoRecebido comando = cliente.buscarComando();
-                if (comando != null) {
-                    cliente.enviarResultado(executor.executar(comando));
+                cliente.anunciarRotinas(catalogo);
+                for (DiarioE2.Registro registro : diario.pendentes()) {
+                    if (registro.estado().equals("executando") || registro.estado().equals("recebido")) {
+                        diario.incerto(registro.id());
+                        registro = diario.obter(registro.id());
+                    }
+                    if (cliente.enviarResultadoE2(registro)) diario.confirmarEnvio(registro.id());
+                }
+                diario.removerAntigos();
+                ClienteJarvis.EntregaE2 entrega = cliente.buscarComandoE2();
+                if (entrega != null) {
+                    ComandoRecebido comando = entrega.comando();
+                    if (java.time.Instant.now().isAfter(entrega.prazoInicio())) {
+                        log.warning("comando E2 vencido antes do início: " + comando.id());
+                        continue;
+                    }
+                    DiarioE2.Registro anterior = diario.obter(comando.id());
+                    if (anterior != null && !anterior.estado().equals("recebido")) {
+                        if (anterior.estado().equals("executando")) diario.incerto(comando.id());
+                        if (!diario.obter(comando.id()).enviado()) {
+                            if (cliente.enviarResultadoE2(diario.obter(comando.id())))
+                                diario.confirmarEnvio(comando.id());
+                        }
+                        continue;
+                    }
+                    if (anterior == null) diario.recebido(comando.id());
+                    if (!cliente.marcarE2(comando.id(), "recebido")) continue;
+                    if (cliente.cancelamentoE2(comando.id())) {
+                        diario.concluir(comando.id(), "cancelado", Resultado.falhou(comando,
+                                "cancelado antes do início"), null);
+                    } else if (diario.iniciar(comando.id()) && cliente.marcarE2(comando.id(), "executando")) {
+                        if (!ACOES_E2.contains(comando.acao())) {
+                            diario.concluir(comando.id(), "falhou", Resultado.falhou(comando,
+                                    "ação E2 desconhecida"), null);
+                        } else if (comando.acao().equals("rodar_rotina")) {
+                            String pedido = comando.dados().path("pedido").asText("");
+                            Rotina cadastrada = catalogo.obter(comando.argumento());
+                            ExecutorDeRotinas.Saida saida = !comando.dados().path("pedido").isTextual()
+                                    || pedido.length() > 8000 || pedido.isBlank()
+                                    ? new ExecutorDeRotinas.Saida("falhou", null, "pedido original inválido")
+                                    : cadastrada == null
+                                    ? new ExecutorDeRotinas.Saida("falhou", null, "rotina desconhecida")
+                                    : cadastrada.confirmar() && !comando.dados().path("confirmado").asBoolean(false)
+                                    ? new ExecutorDeRotinas.Saida("falhou", null, "confirmação ausente")
+                                    : rotinas.executar(comando.argumento(), pedido,
+                                            () -> cliente.cancelamentoE2(comando.id()));
+                            diario.concluir(comando.id(), saida.estado(),
+                                    new Resultado(comando.id(), saida.estado().equals("concluído"),
+                                            saida.texto(), null), saida.codigo());
+                        } else {
+                            Resultado resultado = executor.executar(comando);
+                            diario.concluir(comando.id(), resultado.ok() ? "concluído" : "falhou", resultado, null);
+                        }
+                    } else {
+                        diario.incerto(comando.id());
+                    }
+                    DiarioE2.Registro pronto = diario.obter(comando.id());
+                    if (cliente.enviarResultadoE2(pronto)) diario.confirmarEnvio(comando.id());
                 }
                 espera = ESPERA_INICIAL;
             } catch (InterruptedException e) {

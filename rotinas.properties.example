@@ -1,0 +1,27 @@
+# Copie manualmente para rotinas.properties e troque TODOS os caminhos pelos do seu PC.
+# Este arquivo não é carregado automaticamente e os exemplos não são executados na partida.
+# Caminhos devem ser absolutos e reais. Use / no Windows para evitar escapes de .properties.
+
+# Maven de um projeto de DEMONSTRAÇÃO. O adaptador aceita somente -q, -B, test.
+rotina.demo_maven.descricao=Roda testes Maven no projeto de demonstração
+rotina.demo_maven.pasta=C:/Projetos/projeto-de-demonstracao
+rotina.demo_maven.programa=C:/Ferramentas/apache-maven/bin/mvn.cmd
+rotina.demo_maven.tipo=maven
+rotina.demo_maven.argumentos.count=3
+rotina.demo_maven.argumentos.0=-q
+rotina.demo_maven.argumentos.1=-B
+rotina.demo_maven.argumentos.2=test
+rotina.demo_maven.timeoutSegundos=300
+rotina.demo_maven.capacidades=executa_codigo,altera_artefatos
+rotina.demo_maven.confirmacao=sempre
+
+# Claude Code em modo de análise. O pedido do usuário entra por stdin, sem ir na linha de comando.
+# Requer claude.exe nativo com suporte a --restricted. A pasta deve ser o projeto autorizado.
+rotina.analise_claude.descricao=Analisa o projeto cadastrado em modo somente leitura
+rotina.analise_claude.pasta=C:/Projetos/projeto-de-demonstracao
+rotina.analise_claude.programa=C:/Ferramentas/Claude/claude.exe
+rotina.analise_claude.tipo=claude_leitura
+rotina.analise_claude.argumentos.count=0
+rotina.analise_claude.timeoutSegundos=600
+rotina.analise_claude.capacidades=leitura,agentes
+rotina.analise_claude.confirmacao=sempre

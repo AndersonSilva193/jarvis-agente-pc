@@ -7,6 +7,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.logging.Logger;
 
 import tools.jackson.databind.JsonNode;
@@ -19,6 +20,7 @@ import tools.jackson.databind.node.ObjectNode;
  * Só chamadas de saída. Nada escuta porta neste PC — é essa a ideia inteira do agente.
  */
 final class ClienteJarvis {
+    record EntregaE2(ComandoRecebido comando, Instant prazoInicio, Instant prazoExecucao) { }
 
     private static final Logger log = Logger.getLogger(ClienteJarvis.class.getName());
 
@@ -37,6 +39,73 @@ final class ClienteJarvis {
 
     ClienteJarvis(Configuracao config) {
         this.config = config;
+    }
+
+    void anunciarRotinas(CatalogoRotinas catalogo) throws IOException, InterruptedException {
+        var lista = json.createArrayNode();
+        for (Rotina rotina : catalogo.todas()) {
+            var n = lista.addObject().put("nome", rotina.nome()).put("descricao", rotina.descricao());
+            var capacidades = n.putArray("capacidades");
+            rotina.capacidades().forEach(capacidades::add);
+        }
+        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/catalogo")))
+                .timeout(TIMEOUT_RESULTADO).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(lista))).build();
+        HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
+        if (resposta.statusCode() != 204) throw new IOException("catálogo E2 HTTP " + resposta.statusCode());
+    }
+
+    EntregaE2 buscarComandoE2() throws IOException, InterruptedException {
+        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos")))
+                .timeout(TIMEOUT_BUSCA).header("X-Pc-Apps", config.cabecalhoDeApps()).GET().build();
+        HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
+        if (resposta.statusCode() == 204) return null;
+        if (resposta.statusCode() != 200) throw new IOException("busca E2 HTTP " + resposta.statusCode());
+        JsonNode raiz = json.readTree(resposta.body());
+        if (raiz.path("versao").asInt() != 2) throw new IOException("versão E2 incompatível");
+        JsonNode c = raiz.path("comando");
+        String id = texto(c, "id"), acao = texto(c, "acao");
+        if (!id.matches("[0-9a-fA-F-]{36}") || acao.isBlank()) throw new IOException("comando E2 inválido");
+        return new EntregaE2(new ComandoRecebido(id, acao, texto(c, "argumento"), c.path("dados")),
+                Instant.parse(texto(raiz, "prazoInicio")), Instant.parse(texto(raiz, "prazoExecucao")));
+    }
+
+    boolean marcarE2(String id, String fase) throws IOException, InterruptedException {
+        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos/" + id + "/" + fase)))
+                .timeout(TIMEOUT_RESULTADO).POST(HttpRequest.BodyPublishers.noBody()).build();
+        return http.send(pedido, HttpResponse.BodyHandlers.discarding()).statusCode() == 204;
+    }
+
+    boolean cancelamentoE2(String id) {
+        try {
+            HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos/" + id + "/cancelamento")))
+                    .timeout(Duration.ofSeconds(3)).GET().build();
+            HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
+            return resposta.statusCode() == 200 && json.readTree(resposta.body()).path("cancelar").asBoolean();
+        } catch (Exception e) { return false; }
+    }
+
+    boolean enviarResultadoE2(DiarioE2.Registro r) throws IOException, InterruptedException {
+        boolean arquivo = r.arquivo() != null && !r.arquivo().isBlank()
+                && r.estado().equals("concluído");
+        if (arquivo && !enviarArquivo(r.id(), java.nio.file.Path.of(r.arquivo())))
+            throw new IOException("upload E2 recusado para " + r.id());
+        var corpo = json.createObjectNode().put("estado", r.estado()).put("mensagem", r.mensagem());
+        if (r.codigo() != null) corpo.put("codigoSaida", r.codigo());
+        corpo.put("arquivo", arquivo);
+        if (r.imagemBase64() != null && !r.imagemBase64().isBlank())
+            corpo.put("imagemBase64", r.imagemBase64());
+        if (r.dados() != null && !r.dados().isMissingNode()) {
+            if (r.dados().toString().getBytes(StandardCharsets.UTF_8).length > 32_000)
+                throw new IOException("dados E2 acima do limite para " + r.id());
+            corpo.set("dados", r.dados());
+        }
+        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos/" + r.id() + "/resultado")))
+                .timeout(TIMEOUT_RESULTADO).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(corpo))).build();
+        int status = http.send(pedido, HttpResponse.BodyHandlers.discarding()).statusCode();
+        if (status != 204) throw new IOException("resultado E2 HTTP " + status);
+        return true;
     }
 
     /**
@@ -122,11 +191,16 @@ final class ClienteJarvis {
     }
 
     private boolean enviarArquivo(Resultado resultado) throws IOException, InterruptedException {
-        long tamanho = java.nio.file.Files.size(resultado.arquivo());
+        return enviarArquivo(resultado.comandoId(), resultado.arquivo());
+    }
+
+    private boolean enviarArquivo(String id, java.nio.file.Path arquivo)
+            throws IOException, InterruptedException {
+        long tamanho = java.nio.file.Files.size(arquivo);
         if (tamanho == 0 || tamanho > 8L * 1024 * 1024) throw new IOException("arquivo vazio ou acima de 8 MiB");
-        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/arquivos/" + resultado.comandoId())))
+        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/arquivos/" + id)))
                 .timeout(Duration.ofSeconds(60)).header("Content-Type", "application/octet-stream")
-                .POST(HttpRequest.BodyPublishers.ofFile(resultado.arquivo())).build();
+                .POST(HttpRequest.BodyPublishers.ofFile(arquivo)).build();
         HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
         return resposta.statusCode() == 204;
     }

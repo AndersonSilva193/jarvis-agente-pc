@@ -2,6 +2,7 @@ target/
 
 # Tem o pcToken dentro. O exemplo (config.properties.example) é o que fica versionado.
 config.properties
+rotinas.properties
 
 # Editores
 .idea/
