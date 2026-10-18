@@ -32,7 +32,8 @@ public final class AgentePc {
     private static final java.util.Set<String> ACOES_E2 = java.util.Set.of(
             "abrir_app", "abrir_url", "abrir_hud", "bloquear_tela", "volume", "captura_tela",
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento", "modo_repouso",
-            "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina");
+            "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina",
+            "computer_acao");
 
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
@@ -87,6 +88,8 @@ public final class AgentePc {
         CatalogoRotinas catalogo = CatalogoRotinas.ler(arquivo.toAbsolutePath().getParent()
                 .resolve("rotinas.properties"));
         DiarioE2 diario = new DiarioE2(pastaDeDados().resolve("operacoes-e2"));
+        if (config.computerUseAtivo()) ParadaLocalComputer.iniciar();
+        ExecutorComputer computer = new ExecutorComputer();
         JanelaDaHud janela = new JanelaDaHud(config);
         EnergiaDoWindows energia = new EnergiaDoWindows();
         Despertador despertador = despertar(config, janela, energia, cliente);
@@ -102,6 +105,7 @@ public final class AgentePc {
         }, "encerrando"));
 
         rodar(cliente, new ExecutorDeAcoes(config, janela, despertador), catalogo, diario,
+                computer, config.computerUseAtivo(),
                 new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
                         System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
                         System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
@@ -156,7 +160,9 @@ public final class AgentePc {
      * agente que desiste e morre seria pior, porque voltaria só no próximo logon.
      */
     private static void rodar(ClienteJarvis cliente, ExecutorDeAcoes executor,
-            CatalogoRotinas catalogo, DiarioE2 diario, ExecutorDeRotinas rotinas)
+            CatalogoRotinas catalogo, DiarioE2 diario, ExecutorComputer computer,
+            boolean computerAtivo,
+            ExecutorDeRotinas rotinas)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
         while (true) {
@@ -195,6 +201,12 @@ public final class AgentePc {
                         if (!ACOES_E2.contains(comando.acao())) {
                             diario.concluir(comando.id(), "falhou", Resultado.falhou(comando,
                                     "ação E2 desconhecida"), null);
+                        } else if (comando.acao().equals("computer_acao")) {
+                            Resultado resultado = computerAtivo
+                                    ? computer.executar(comando)
+                                    : Resultado.falhou(comando, "computer use desativado no agente");
+                            diario.concluir(comando.id(), resultado.ok() ? "concluído" : "falhou",
+                                    resultado, null);
                         } else if (comando.acao().equals("rodar_rotina")) {
                             String pedido = comando.dados().path("pedido").asText("");
                             Rotina cadastrada = catalogo.obter(comando.argumento());

@@ -8,6 +8,10 @@ urlApi=https://jarvis.barberagendaonline.store
 # O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
 pcToken=
 
+# Computer use no monitor principal. Ligue somente depois dos testes supervisionados.
+# Parada local: Ctrl+Alt+Shift+F12 ou menu do icone Jarvis na bandeja.
+computer.use.ativo=false
+
 # Pasta dos arquivos criados. Vazio: pasta Documentos do Windows, subpasta Jarvis.
 # Um caminho relativo parte da pasta deste config.properties.
 pastaArquivos=

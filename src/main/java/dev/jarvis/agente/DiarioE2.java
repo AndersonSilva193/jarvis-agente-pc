@@ -69,6 +69,13 @@ final class DiarioE2 {
         try (var arquivos = Files.list(pasta)) {
             for (Path caminho : arquivos.filter(p -> p.getFileName().toString().endsWith(".json")).toList()) {
                 Registro r = obter(caminho.getFileName().toString().replace(".json", ""));
+                if (r != null && !r.imagemBase64().isBlank()
+                        && r.atualizado().isBefore(Instant.now().minus(Duration.ofMinutes(5)))) {
+                    guardar(new Registro(r.id(), "resultado_incerto",
+                            "captura descartada apos cinco minutos", r.codigo(), "", "",
+                            null, Instant.now(), r.enviado()));
+                    continue;
+                }
                 if (r != null && r.atualizado().isBefore(Instant.now().minus(Duration.ofDays(2))))
                     Files.deleteIfExists(caminho(r.id()));
             }

@@ -155,6 +155,24 @@ acontecer — tempo de desistir com *"cancela"*.
 | `bloquear_tela` | `rundll32.exe user32.dll,LockWorkStation` |
 | `volume` | tecla de mídia por PowerShell/`SendKeys` (175 sobe, 174 abaixa, 173 alterna o mudo) |
 | `captura_tela` | `Robot` em todos os monitores, PNG reduzido para 1600 px de largura |
+| `computer_acao` | ação interna E2 de `tarefa_no_pc`, restrita ao monitor principal |
+
+### Computer use supervisionado
+
+`computer.use.ativo=false` é o padrão no `config.properties`. Depois de atualizar a VPS e
+homologar com dados fictícios, ative aqui antes de ligar `COMPUTER_USE_ATIVO` na VPS. O agente
+continua sem porta aberta: busca cada ação pelo E2 e devolve a captura necessária ao provedor.
+Uma sessão por vez usa o monitor principal; coordenadas fora da captura, texto acima de 1000
+caracteres, teclas não reconhecidas e esperas acima de três segundos são recusados. Mudança na
+geometria ou entrada local entre ações encerra a tarefa. O agente não executa shell nem scripts
+vindos do modelo.
+
+**Parada local:** Ctrl+Alt+Shift+F12 ou “Parar computer use” no ícone da bandeja. O bloqueio
+permanece até selecionar “Permitir nova tarefa” localmente ou reiniciar o agente. Se o atalho
+global do Windows não puder ser registrado, o executor recusa ações. A parada remota depende da
+rede e não desfaz uma ação já iniciada. As capturas de resultado não entregues são descartadas
+após cinco minutos; não há envio periódico ao Telegram. Homologue manualmente hotkey, bandeja,
+captura, escala, interferência e rede antes de usar em dados reais.
 | `status_pc` | CPU e memória pelo `OperatingSystemMXBean`, disco pelo `FileStore`, bateria por `Win32_Battery` |
 | `desligar` / `reiniciar` | `shutdown /s /t 60` e `shutdown /r /t 60` |
 | `cancelar_desligamento` | `shutdown /a` (código 1116, "nada agendado", volta como sucesso) |

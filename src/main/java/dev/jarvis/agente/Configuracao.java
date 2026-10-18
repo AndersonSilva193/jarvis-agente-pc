@@ -43,7 +43,17 @@ public record Configuracao(
         boolean manterPcAcordado,
         Path vozExecutavel,
         Path vozModelo,
-        Path pastaArquivos) {
+        Path pastaArquivos,
+        boolean computerUseAtivo) {
+
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, false);
+    }
 
     private static final Logger log = Logger.getLogger(Configuracao.class.getName());
     private static final String PREFIXO_APP = "app.";
@@ -97,7 +107,8 @@ public record Configuracao(
                 booleano(propriedades, "energia.manterPcAcordado", true),
                 caminho(arquivo, propriedades, "voz.executavel", "ferramentas/whisper/whisper-cli.exe"),
                 caminho(arquivo, propriedades, "voz.modelo", "modelos/ggml-base.bin"),
-                pastaArquivos(arquivo, propriedades));
+                pastaArquivos(arquivo, propriedades),
+                booleano(propriedades, "computer.use.ativo", false));
     }
 
     /**

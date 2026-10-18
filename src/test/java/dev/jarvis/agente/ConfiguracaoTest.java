@@ -50,6 +50,7 @@ class ConfiguracaoTest {
         assertEquals(Configuracao.MODO_APP, config.hudModo());
         assertFalse(config.kiosk());
         assertTrue(config.manterPcAcordado());
+        assertFalse(config.computerUseAtivo());
     }
 
     @Test
@@ -101,6 +102,7 @@ class ConfiguracaoTest {
                 hud.modo=KIOSK
                 energia.manterPcAcordado=false
                 microfone=Blue Yeti
+                computer.use.ativo=true
                 """);
 
         assertFalse(config.gatilhoVoz());
@@ -110,6 +112,7 @@ class ConfiguracaoTest {
         assertTrue(config.kiosk());
         assertFalse(config.manterPcAcordado());
         assertEquals("Blue Yeti", config.microfone());
+        assertTrue(config.computerUseAtivo());
     }
 
     @Test
