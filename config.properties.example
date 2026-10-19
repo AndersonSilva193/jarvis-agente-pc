@@ -16,6 +16,15 @@ computer.use.ativo=false
 # Um caminho relativo parte da pasta deste config.properties.
 pastaArquivos=
 
+# Edição de TXT/MD catalogados diretamente em pastaArquivos.
+# Limites em bytes; a cópia e o original são revalidados no commit.
+edicao.maxBytesArquivo=1048576
+edicao.maxOperacoes=10
+edicao.maxBytesResultado=1048576
+edicao.maxBytesPrevia=12000
+edicao.maxVersoesBackup=10
+edicao.maxBytesBackup=104857600
+
 # A tela do Jarvis: é ela que a ação abrir_hud abre e que a palavra "Jarvis" acende.
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app

@@ -33,7 +33,8 @@ public final class AgentePc {
             "abrir_app", "abrir_url", "abrir_hud", "bloquear_tela", "volume", "captura_tela",
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento", "modo_repouso",
             "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina",
-            "computer_acao");
+            "computer_acao", "preparar_edicao", "aplicar_edicao", "preparar_desfazer",
+            "aplicar_desfazer");
 
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
@@ -88,6 +89,9 @@ public final class AgentePc {
         CatalogoRotinas catalogo = CatalogoRotinas.ler(arquivo.toAbsolutePath().getParent()
                 .resolve("rotinas.properties"));
         DiarioE2 diario = new DiarioE2(pastaDeDados().resolve("operacoes-e2"));
+        EditorDeArquivos editor = new EditorDeArquivos(config.pastaArquivos(), pastaDeDados(),
+                arquivo, config.limitesEdicao());
+        editor.recuperarPendentes(diario);
         if (config.computerUseAtivo()) ParadaLocalComputer.iniciar();
         ExecutorComputer computer = new ExecutorComputer();
         JanelaDaHud janela = new JanelaDaHud(config);
@@ -109,7 +113,7 @@ public final class AgentePc {
                 new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
                         System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
                         System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
-                        .filter(java.util.Objects::nonNull).toList()));
+                        .filter(java.util.Objects::nonNull).toList()), editor);
     }
 
     /**
@@ -162,7 +166,7 @@ public final class AgentePc {
     private static void rodar(ClienteJarvis cliente, ExecutorDeAcoes executor,
             CatalogoRotinas catalogo, DiarioE2 diario, ExecutorComputer computer,
             boolean computerAtivo,
-            ExecutorDeRotinas rotinas)
+            ExecutorDeRotinas rotinas, EditorDeArquivos editor)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
         while (true) {
@@ -207,6 +211,24 @@ public final class AgentePc {
                                     : Resultado.falhou(comando, "computer use desativado no agente");
                             diario.concluir(comando.id(), resultado.ok() ? "concluído" : "falhou",
                                     resultado, null);
+                        } else if (java.util.Set.of("preparar_edicao", "aplicar_edicao",
+                                "preparar_desfazer", "aplicar_desfazer").contains(comando.acao())) {
+                            Resultado resultado;
+                            try {
+                                resultado = switch (comando.acao()) {
+                                    case "preparar_edicao" -> Resultado.comDados(comando,
+                                            editor.preparar(comando.dados()));
+                                    case "aplicar_edicao" -> editor.aplicar(comando);
+                                    case "preparar_desfazer" -> Resultado.comDados(comando,
+                                            editor.prepararDesfazer(comando.dados()));
+                                    default -> editor.desfazer(comando);
+                                };
+                            } catch (Exception falha) {
+                                resultado = Resultado.falhou(comando, erroDeEdicao(falha));
+                            }
+                            diario.concluir(comando.id(), resultado.ok() ? "concluído"
+                                    : resultado.mensagem().startsWith("resultado_incerto")
+                                            ? "resultado_incerto" : "falhou", resultado, null);
                         } else if (comando.acao().equals("rodar_rotina")) {
                             String pedido = comando.dados().path("pedido").asText("");
                             Rotina cadastrada = catalogo.obter(comando.argumento());
@@ -259,6 +281,18 @@ public final class AgentePc {
         return mensagem == null || mensagem.isBlank()
                 ? e.getClass().getSimpleName()
                 : e.getClass().getSimpleName() + ": " + mensagem;
+    }
+
+    private static String erroDeEdicao(Exception e) {
+        String mensagem = e.getMessage();
+        if (mensagem == null) return "edição recusada";
+        for (String inicio : java.util.List.of("CONFLITO_", "resultado_incerto", "arquivo ",
+                "pasta ", "diretório ", "backup ", "temporário ", "substituição ",
+                "codificação ", "quebra ", "leia ", "reescrita ", "proposta ",
+                "edição ", "extensão ", "campo ", "quantidade ", "pedido ",
+                "versão ", "operação ", "resultado ", "cópia ", "nenhuma "))
+            if (mensagem.startsWith(inicio)) return mensagem;
+        return "não foi possível editar; arquivo ou disco indisponível";
     }
 
     /**

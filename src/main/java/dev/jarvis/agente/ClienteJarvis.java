@@ -88,11 +88,19 @@ final class ClienteJarvis {
     boolean enviarResultadoE2(DiarioE2.Registro r) throws IOException, InterruptedException {
         boolean arquivo = r.arquivo() != null && !r.arquivo().isBlank()
                 && r.estado().equals("concluído");
-        if (arquivo && !enviarArquivo(r.id(), java.nio.file.Path.of(r.arquivo())))
-            throw new IOException("upload E2 recusado para " + r.id());
-        var corpo = json.createObjectNode().put("estado", r.estado()).put("mensagem", r.mensagem());
+        boolean edicao = r.dados() != null && r.dados().path("editId").isTextual();
+        boolean entregaFalhou = false;
+        if (arquivo) try {
+            entregaFalhou = !enviarArquivo(r.id(), java.nio.file.Path.of(r.arquivo()));
+        } catch (IOException e) {
+            if (!edicao) throw e;
+            entregaFalhou = true;
+        }
+        if (entregaFalhou && !edicao) throw new IOException("upload E2 recusado para " + r.id());
+        var corpo = json.createObjectNode().put("estado", r.estado()).put("mensagem",
+                entregaFalhou ? "salvo, entrega falhou: " + r.mensagem() : r.mensagem());
         if (r.codigo() != null) corpo.put("codigoSaida", r.codigo());
-        corpo.put("arquivo", arquivo);
+        corpo.put("arquivo", arquivo && !entregaFalhou);
         if (r.imagemBase64() != null && !r.imagemBase64().isBlank())
             corpo.put("imagemBase64", r.imagemBase64());
         if (r.dados() != null && !r.dados().isMissingNode()) {

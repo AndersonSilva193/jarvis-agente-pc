@@ -44,7 +44,26 @@ public record Configuracao(
         Path vozExecutavel,
         Path vozModelo,
         Path pastaArquivos,
-        boolean computerUseAtivo) {
+        boolean computerUseAtivo,
+        LimitesEdicao limitesEdicao) {
+
+    public record LimitesEdicao(int maxBytesArquivo, int maxOperacoes, int maxBytesResultado,
+            int maxBytesPrevia, int maxVersoesBackup, long maxBytesBackup) {
+        static LimitesEdicao padrao() {
+            return new LimitesEdicao(1024 * 1024, 10, 1024 * 1024, 12_000, 10, 100L * 1024 * 1024);
+        }
+    }
+
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo,
+                LimitesEdicao.padrao());
+    }
 
     public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
             boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
@@ -108,7 +127,15 @@ public record Configuracao(
                 caminho(arquivo, propriedades, "voz.executavel", "ferramentas/whisper/whisper-cli.exe"),
                 caminho(arquivo, propriedades, "voz.modelo", "modelos/ggml-base.bin"),
                 pastaArquivos(arquivo, propriedades),
-                booleano(propriedades, "computer.use.ativo", false));
+                booleano(propriedades, "computer.use.ativo", false),
+                new LimitesEdicao(
+                        inteiro(propriedades, "edicao.maxBytesArquivo", 1024 * 1024, 1, 8 * 1024 * 1024),
+                        inteiro(propriedades, "edicao.maxOperacoes", 10, 1, 50),
+                        inteiro(propriedades, "edicao.maxBytesResultado", 1024 * 1024, 1, 8 * 1024 * 1024),
+                        inteiro(propriedades, "edicao.maxBytesPrevia", 12_000, 100, 20_000),
+                        inteiro(propriedades, "edicao.maxVersoesBackup", 10, 1, 100),
+                        inteiro(propriedades, "edicao.maxBytesBackup", 100 * 1024 * 1024,
+                                1024 * 1024, 1024 * 1024 * 1024)));
     }
 
     /**
@@ -205,6 +232,17 @@ public record Configuracao(
 
     private static String texto(Properties propriedades, String chave) {
         return propriedades.getProperty(chave, "").trim();
+    }
+
+    private static int inteiro(Properties propriedades, String chave, int padrao, int minimo, int maximo)
+            throws IOException {
+        String texto = texto(propriedades, chave);
+        if (texto.isBlank()) return padrao;
+        try {
+            int valor = Integer.parseInt(texto);
+            if (valor >= minimo && valor <= maximo) return valor;
+        } catch (NumberFormatException ignorada) { }
+        throw new IOException(chave + " fora do intervalo permitido");
     }
 
     /**

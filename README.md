@@ -344,3 +344,25 @@ O E2 transporta arquivos gerados por upload autenticado (até 8 MiB), capturas P
 decodificados) e respostas estruturadas das consultas de arquivos (até 32 KiB). O diário local
 guarda esses resultados até a VPS confirmar o recebimento; depois remove os payloads da cópia local.
 Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a resposta HTTP se perde.
+# Edição de TXT e Markdown
+
+`preparar_edicao` recebe o ID de `listar_arquivos`/`ler_arquivo`, o SHA-256
+`versaoEsperada`, destino `original` ou `copia` e até dez operações. O agente só
+aceita arquivos diretamente em `pastaArquivos`, após leitura recente da mesma versão.
+Ele preserva UTF-8 com ou sem BOM e quebras LF/CRLF. A proposta é imutável e expira
+em dois minutos. `aplicar_edicao` recebe somente o `editId`; o servidor exige nova
+mensagem autenticada antes de sobrescrever o original. Para cópia, o nome recebe
+`-copia-<prefixo do editId>`.
+
+Antes de substituir, o agente valida o hash e o arquivo novamente, guarda backup em
+`%LOCALAPPDATA%/jarvis-agente-pc/edicoes` e exige move atômico. `preparar_desfazer`
+e `aplicar_desfazer` só restauram backup íntegro se o arquivo ainda tiver o hash
+produzido pela edição. A retenção padrão é de dez versões por arquivo e 100 MiB no
+total; após expurgo não é possível desfazer a versão removida. Os limites são
+configurados em `config.properties.example`.
+
+O agente tenta obter bloqueio exclusivo antes de gravar. Editores externos que não
+respeitam locks ainda podem alterar o arquivo entre a última checagem e o move;
+o filesystem não oferece compare-and-swap perfeito nesse intervalo. Após queda na
+fronteira da gravação, o agente usa o diário e hashes para comprovar o resultado;
+quando não consegue, informa `resultado_incerto`, sem aplicar de novo.

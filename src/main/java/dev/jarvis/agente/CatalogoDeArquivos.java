@@ -44,8 +44,12 @@ final class CatalogoDeArquivos {
         Files.createDirectories(pasta);
         if (!Files.isDirectory(pasta, LinkOption.NOFOLLOW_LINKS))
             throw new IOException("pasta de arquivos inválida");
-        return pasta.toRealPath(LinkOption.NOFOLLOW_LINKS);
+        Path semLinks = pasta.toRealPath(LinkOption.NOFOLLOW_LINKS);
+        if (!pasta.toRealPath().equals(semLinks))
+            throw new IOException("pasta de arquivos redirecionada por link ou junction");
+        return semLinks;
     }
+    Path raizAutorizada() throws IOException { return raiz(); }
 
     private Path caminho(String nome) throws IOException {
         if (nome == null || nome.isBlank() || nome.contains("/") || nome.contains("\\")
@@ -158,6 +162,7 @@ final class CatalogoDeArquivos {
             ObjectNode item = itens.addObject();
             item.put("id", e.id()); item.put("nome", e.nome()); item.put("formato", e.formato());
             item.put("tamanho", e.tamanho()); item.put("modificadoEm", java.time.Instant.ofEpochMilli(e.modificado()).toString());
+            item.put("versaoEsperada", e.hash());
             item.put("estado", estado(e));
         }
         saida.put("temMais", inicio + tamanho < filtradas.size());
@@ -168,6 +173,20 @@ final class CatalogoDeArquivos {
         if (id == null || !id.matches("[0-9a-fA-F-]{36}")) throw new IOException("identificador inválido");
         return carregar().stream().filter(e -> e.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IOException("arquivo não encontrado no catálogo"));
+    }
+
+    synchronized void atualizar(String id, String hashAnterior) throws IOException {
+        List<Entrada> entradas = carregar();
+        for (int i = 0; i < entradas.size(); i++) {
+            Entrada e = entradas.get(i);
+            if (!e.id().equals(id)) continue;
+            if (!e.hash().equals(hashAnterior) && !estado(e).equals("disponivel"))
+                throw new IOException("CONFLITO_DE_VERSAO no catálogo");
+            entradas.set(i, validar(caminho(e.nome()), id));
+            salvar(entradas);
+            return;
+        }
+        throw new IOException("arquivo não encontrado no catálogo");
     }
 
     synchronized String estado(Entrada e) {
@@ -184,6 +203,14 @@ final class CatalogoDeArquivos {
         String estado = estado(e);
         if (!estado.equals("disponivel")) throw new IOException("arquivo " + estado + " desde o cadastro");
         return caminho(e.nome());
+    }
+
+    Path caminhoDe(Entrada e) throws IOException {
+        Path arquivo = caminho(e.nome());
+        if (!Files.isRegularFile(arquivo, LinkOption.NOFOLLOW_LINKS)
+                || !arquivo.toRealPath().getParent().equals(raiz()))
+            throw new IOException("arquivo fora da pasta permitida ou link");
+        return arquivo;
     }
 
     private List<Entrada> carregar() throws IOException {
