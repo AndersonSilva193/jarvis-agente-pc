@@ -8,7 +8,11 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.time.Instant;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.apache.pdfbox.Loader;
@@ -25,16 +29,42 @@ import tools.jackson.databind.node.ObjectNode;
 
 /** Extração limitada, sem avaliar fórmulas, executar conteúdo ou buscar recursos externos. */
 final class LeitorDeArquivo {
-    private static final java.util.concurrent.ConcurrentMap<String, java.time.Instant> LEITURAS =
-            new java.util.concurrent.ConcurrentHashMap<>();
-    private static final java.util.concurrent.ConcurrentMap<String, Boolean> LEITURAS_INTEGRAIS =
-            new java.util.concurrent.ConcurrentHashMap<>();
-    static boolean foiLido(String id, String hash) {
-        java.time.Instant quando = LEITURAS.get(id + ":" + hash);
-        return quando != null && quando.isAfter(java.time.Instant.now().minusSeconds(600));
+    private static final Map<String, Leitura> LEITURAS = new HashMap<>();
+    private static final class Leitura {
+        Instant vista;
+        int total;
+        final BitSet trechos = new BitSet();
+        Leitura(Instant vista, int total) { this.vista = vista; this.total = total; }
+        boolean integral() { return trechos.nextClearBit(0) >= total; }
     }
-    static boolean foiLidoIntegralmente(String id, String hash) {
-        return LEITURAS_INTEGRAIS.containsKey(id + ":" + hash);
+    private static synchronized void limparLeituras() {
+        Instant limite = Instant.now().minusSeconds(600);
+        LEITURAS.values().removeIf(l -> !l.vista.isAfter(limite));
+    }
+    static synchronized boolean foiLido(String id, String hash) {
+        limparLeituras();
+        return LEITURAS.containsKey(id + ":" + hash);
+    }
+    static synchronized boolean foiLidoIntegralmente(String id, String hash) {
+        limparLeituras();
+        Leitura leitura = LEITURAS.get(id + ":" + hash);
+        return leitura != null && leitura.integral();
+    }
+    private static synchronized void registrarLeitura(ObjectNode resultado) {
+        limparLeituras();
+        String chave = resultado.path("id").asText() + ":"
+                + resultado.path("versaoEsperada").asText();
+        int inicio = resultado.path("inicio").asInt(-1);
+        int total = resultado.path("totalCaracteres").asInt(-1);
+        String conteudo = resultado.path("conteudo").asText("");
+        if (inicio < 0 || total < 0 || inicio > total || conteudo.length() > total - inicio) return;
+        Leitura leitura = LEITURAS.get(chave);
+        if (leitura == null || leitura.total != total) {
+            leitura = new Leitura(Instant.now(), total);
+            LEITURAS.put(chave, leitura);
+        }
+        leitura.vista = Instant.now();
+        leitura.trechos.set(inicio, inicio + conteudo.length());
     }
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final int MAX_SAIDA = 12_000;
@@ -54,14 +84,7 @@ final class LeitorDeArquivo {
                 ObjectNode resultado = futuro.get(12, TimeUnit.SECONDS);
                 if (!cabe(resultado)) throw new IOException("resultado excede o limite de 28 KB");
                 String formato = resultado.path("formato").asText("");
-                if (formato.equals("txt") || formato.equals("md")) {
-                    String chave = resultado.path("id").asText() + ":"
-                            + resultado.path("versaoEsperada").asText();
-                    LEITURAS.put(chave, java.time.Instant.now());
-                    if (!resultado.path("truncado").asBoolean(true)
-                            && resultado.path("inicio").asInt(-1) == 0)
-                        LEITURAS_INTEGRAIS.put(chave, true);
-                }
+                if (formato.equals("txt") || formato.equals("md")) registrarLeitura(resultado);
                 return resultado;
             }
             catch (java.util.concurrent.TimeoutException e) {

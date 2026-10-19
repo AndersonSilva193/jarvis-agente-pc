@@ -29,6 +29,74 @@ class EdicaoTest {
                 + "\",\"destino\":\"" + destino + "\",\"operacoes\":[" + operacao + "]}";
     }
 
+    @Test void substituiTodasAsOcorrenciasLiteraisPreservandoBomECrlf() throws Exception {
+        Path pasta = temporaria.resolve("documentos");
+        byte[] anterior = "\uFEFFChat GPT\r\nchat gpt\r\nCHAT GPT\r\n".getBytes(StandardCharsets.UTF_8);
+        String id = catalogar(pasta, "relatorio.md", anterior);
+        var editor = new EditorDeArquivos(pasta, temporaria.resolve("dados"));
+        var proposta = editor.preparar(json.readTree(pedido(id, EditorDeArquivos.hash(anterior),
+                "original", "{\"tipo\":\"substituir_todas_ocorrencias\",\"textoAtual\":\"Chat GPT\","
+                        + "\"textoNovo\":\"você\",\"ignorarMaiusculas\":true}")));
+        assertEquals(3, proposta.path("ocorrenciasSubstituidas").asInt());
+        String editId = proposta.path("editId").asText();
+        var comando = new ComandoRecebido("99999999-9999-9999-9999-999999999999",
+                "aplicar_edicao", "", json.readTree("{\"editId\":\"" + editId + "\"}"));
+        assertTrue(editor.aplicar(comando).ok());
+        assertEquals("\uFEFFvocê\r\nvocê\r\nvocê\r\n", Files.readString(pasta.resolve("relatorio.md")));
+        assertTrue(editor.aplicar(comando).ok());
+        assertTrue(editor.desfazer(new ComandoRecebido("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                "aplicar_desfazer", "", json.readTree("{\"editId\":\"" + editId + "\"}"))).ok());
+        assertArrayEquals(anterior, Files.readAllBytes(pasta.resolve("relatorio.md")));
+    }
+
+    @Test void substituicaoGlobalSemOcorrenciaNaoAlteraArquivo() throws Exception {
+        Path pasta = temporaria.resolve("documentos");
+        byte[] anterior = "Texto simples".getBytes(StandardCharsets.UTF_8);
+        String id = catalogar(pasta, "nota.txt", anterior);
+        var editor = new EditorDeArquivos(pasta, temporaria.resolve("dados"));
+        assertTrue(assertThrows(java.io.IOException.class, () -> editor.preparar(json.readTree(
+                pedido(id, EditorDeArquivos.hash(anterior), "original",
+                        "{\"tipo\":\"substituir_todas_ocorrencias\",\"textoAtual\":\"Chat GPT\","
+                                + "\"textoNovo\":\"você\"}"))))
+                .getMessage().contains("nenhuma ocorrência"));
+        assertArrayEquals(anterior, Files.readAllBytes(pasta.resolve("nota.txt")));
+    }
+
+    @Test void substituicaoGlobalQueExpandiriaDemaisERecusadaAntesDeGravar() throws Exception {
+        Path pasta = temporaria.resolve("documentos");
+        byte[] anterior = "a".repeat(1000).getBytes(StandardCharsets.UTF_8);
+        String id = catalogar(pasta, "nota.txt", anterior);
+        String novo = "b".repeat(2000);
+        var operacao = json.createObjectNode().put("tipo", "substituir_todas_ocorrencias")
+                .put("textoAtual", "a").put("textoNovo", novo);
+        var pedido = json.createObjectNode().put("id", id)
+                .put("versaoEsperada", EditorDeArquivos.hash(anterior)).put("destino", "original");
+        pedido.putArray("operacoes").add(operacao);
+        var editor = new EditorDeArquivos(pasta, temporaria.resolve("dados"));
+        assertTrue(assertThrows(java.io.IOException.class, () -> editor.preparar(pedido))
+                .getMessage().contains("limite de bytes"));
+        assertArrayEquals(anterior, Files.readAllBytes(pasta.resolve("nota.txt")));
+    }
+
+    @Test void leituraPaginadaComprovaConteudoIntegralDaMesmaVersao() throws Exception {
+        Path pasta = temporaria.resolve("documentos");
+        byte[] anterior = "a".repeat(13_000).getBytes(StandardCharsets.UTF_8);
+        String id = catalogar(pasta, "longo.md", anterior);
+        String hash = EditorDeArquivos.hash(anterior);
+        var leitor = new LeitorDeArquivo(pasta);
+        var primeira = leitor.ler(json.readTree("{\"id\":\"" + id
+                + "\",\"maximoCaracteres\":12000}"));
+        assertTrue(primeira.path("truncado").asBoolean());
+        assertFalse(LeitorDeArquivo.foiLidoIntegralmente(id, hash));
+        leitor.ler(json.readTree("{\"id\":\"" + id + "\",\"inicio\":12000}"));
+        assertTrue(LeitorDeArquivo.foiLidoIntegralmente(id, hash));
+        var pedido = (tools.jackson.databind.node.ObjectNode) json.readTree(pedido(id, hash, "original",
+                "{\"tipo\":\"substituir_conteudo\",\"conteudo\":\"novo\"}"));
+        pedido.put("leituraIntegral", true);
+        assertTrue(new EditorDeArquivos(pasta, temporaria.resolve("dados"))
+                .preparar(pedido).path("editId").isTextual());
+    }
+
     @Test void preservaBomCrLfEImpedeRepeticao() throws Exception {
         Path pasta = temporaria.resolve("documentos");
         byte[] texto = "\uFEFFOlá\r\núnico\r\n".getBytes(StandardCharsets.UTF_8);
@@ -83,6 +151,23 @@ class EdicaoTest {
                 "aplicar_edicao", "", json.readTree("{\"editId\":\"" + proposta.path("editId").asText() + "\"}")));
         assertEquals("abc", Files.readString(pasta.resolve("nota.txt")));
         assertEquals("abcdef", Files.readString(resultado.arquivo()));
+    }
+
+    @Test void copiaNaoSobrescreveDestinoExistenteNoWindows() throws Exception {
+        Path pasta = temporaria.resolve("documentos");
+        byte[] original = "antes".getBytes(StandardCharsets.UTF_8);
+        String id = catalogar(pasta, "nota.md", original);
+        var editor = new EditorDeArquivos(pasta, temporaria.resolve("dados"));
+        var proposta = editor.preparar(json.readTree(pedido(id, EditorDeArquivos.hash(original),
+                "copia", "{\"tipo\":\"acrescentar_ao_final\",\"texto\":\" depois\"}")));
+        String editId = proposta.path("editId").asText();
+        Path destino = pasta.resolve("nota-copia-" + editId.substring(0, 8) + ".md");
+        Files.writeString(destino, "não sobrescrever");
+        assertThrows(java.io.IOException.class, () -> editor.aplicar(new ComandoRecebido(
+                "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "aplicar_edicao", "",
+                json.readTree("{\"editId\":\"" + editId + "\"}"))));
+        assertEquals("não sobrescrever", Files.readString(destino));
+        assertArrayEquals(original, Files.readAllBytes(pasta.resolve("nota.md")));
     }
 
     @Test void reescritaExigeLeituraIntegralEBackupFalhoPreservaOriginal() throws Exception {

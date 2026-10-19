@@ -349,6 +349,10 @@ Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a
 `preparar_edicao` recebe o ID de `listar_arquivos`/`ler_arquivo`, o SHA-256
 `versaoEsperada`, destino `original` ou `copia` e até dez operações. O agente só
 aceita arquivos diretamente em `pastaArquivos`, após leitura recente da mesma versão.
+`substituir_trecho` exige uma ocorrência; `substituir_todas_ocorrencias` troca todas
+as ocorrências literais, com `ignorarMaiusculas` opcional, e informa a contagem.
+Leituras paginadas da mesma versão comprovam leitura integral quando cobrem todo o
+conteúdo; esse registro expira dez minutos após a última página lida.
 Ele preserva UTF-8 com ou sem BOM e quebras LF/CRLF. A proposta é imutável e expira
 em dois minutos. `aplicar_edicao` recebe somente o `editId`; o servidor exige nova
 mensagem autenticada antes de sobrescrever o original. Para cópia, o nome recebe

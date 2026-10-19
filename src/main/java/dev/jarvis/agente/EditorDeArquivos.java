@@ -22,6 +22,8 @@ import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.logging.Logger;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -72,6 +74,7 @@ final class EditorDeArquivos {
         if (!operacoes.isArray() || operacoes.isEmpty() || operacoes.size() > limites.maxOperacoes())
             throw new IOException("quantidade de operações inválida");
         String proposto = texto.conteudo();
+        int ocorrenciasSubstituidas = 0;
         for (JsonNode operacao : operacoes) {
             String tipo = campo(operacao, "tipo");
             switch (tipo) {
@@ -82,6 +85,35 @@ final class EditorDeArquivos {
                             || proposto.indexOf(atual) != proposto.lastIndexOf(atual))
                         throw new IOException("CONFLITO_DE_TRECHO: esperado exatamente uma ocorrência");
                     proposto = proposto.replace(atual, normalizarQuebras(novo, texto.crlf()));
+                    ocorrenciasSubstituidas++;
+                }
+                case "substituir_todas_ocorrencias" -> {
+                    String atual = normalizarQuebras(campoBruto(operacao, "textoAtual"), texto.crlf());
+                    String novo = normalizarQuebras(campoBruto(operacao, "textoNovo"), texto.crlf());
+                    if (atual.isEmpty()) throw new IOException("textoAtual vazio");
+                    JsonNode ignorar = operacao.path("ignorarMaiusculas");
+                    if (!ignorar.isMissingNode() && !ignorar.isBoolean())
+                        throw new IOException("ignorarMaiusculas deve ser booleano");
+                    int opcoes = ignorar.asBoolean(false)
+                            ? Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE : 0;
+                    Matcher busca = Pattern.compile(Pattern.quote(atual), opcoes).matcher(proposto);
+                    long tamanhoProjetado = proposto.length();
+                    int encontrados = 0;
+                    while (busca.find()) {
+                        tamanhoProjetado += (long) novo.length() - (busca.end() - busca.start());
+                        encontrados++;
+                    }
+                    if (encontrados == 0) throw new IOException("CONFLITO_DE_TRECHO: nenhuma ocorrência");
+                    if (tamanhoProjetado > limites.maxBytesResultado())
+                        throw new IOException("resultado acima do limite de bytes");
+                    busca.reset();
+                    StringBuffer alterado = new StringBuffer();
+                    while (busca.find()) {
+                        busca.appendReplacement(alterado, Matcher.quoteReplacement(novo));
+                    }
+                    busca.appendTail(alterado);
+                    proposto = alterado.toString();
+                    ocorrenciasSubstituidas += encontrados;
                 }
                 case "acrescentar_ao_final" -> proposto += normalizarQuebras(
                         campoBruto(operacao, "texto"), texto.crlf());
@@ -93,6 +125,8 @@ final class EditorDeArquivos {
                 }
                 default -> throw new IOException("operação desconhecida");
             }
+            if (proposto.length() > limites.maxBytesResultado())
+                throw new IOException("resultado acima do limite de bytes");
         }
         if (proposto.equals(texto.conteudo())) throw new IOException("nenhuma alteração proposta");
         validarControles(proposto);
@@ -101,7 +135,8 @@ final class EditorDeArquivos {
             throw new IOException("resultado vazio ou acima do limite de bytes");
         String editId = UUID.randomUUID().toString();
         Instant expira = Instant.now().plusSeconds(120);
-        String resumo = operacoes.size() + " operação(ões); " + anterior.length + " → "
+        String resumo = operacoes.size() + " operação(ões); " + ocorrenciasSubstituidas
+                + " ocorrência(s) substituída(s); " + anterior.length + " → "
                 + propostos.length + " bytes";
         ObjectNode registro = JSON.createObjectNode().put("editId", editId).put("id", id)
                 .put("nome", entrada.nome()).put("hashAnterior", versao)
@@ -118,6 +153,7 @@ final class EditorDeArquivos {
                 .put("id", id).put("nome", entrada.nome()).put("versaoAnterior", versao)
                 .put("versaoProposta", hash(propostos)).put("destino", destino)
                 .put("operacoes", operacoes.size()).put("expiraEm", expira.toString())
+                .put("ocorrenciasSubstituidas", ocorrenciasSubstituidas)
                 .put("resumo", resumo + "; original preservado.")
                 .put("previa", previaLimitada)
                 .put("previaTruncada", previaLimitada.length() < previa.length());
