@@ -29,7 +29,7 @@ import tools.jackson.databind.node.ObjectNode;
 /** Catálogo persistente somente dos arquivos diretos da pasta configurada. */
 final class CatalogoDeArquivos {
     static final long LIMITE_ARQUIVO = 8L * 1024 * 1024;
-    private static final Set<String> FORMATOS = Set.of("txt", "md", "docx", "pdf", "xlsx", "csv");
+    private static final Set<String> FORMATOS = Set.of("txt", "md", "json", "docx", "pdf", "xlsx", "csv");
     private static final String ARQUIVO_CATALOGO = ".jarvis-catalogo.properties";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final Path pasta;
@@ -83,13 +83,15 @@ final class CatalogoDeArquivos {
             switch (formato) {
                 case "txt", "md", "csv" -> java.nio.charset.StandardCharsets.UTF_8.newDecoder()
                         .decode(java.nio.ByteBuffer.wrap(bytesSemLink(arquivo)));
+                case "json" -> EdicaoJson.analisar(bytesSemLink(arquivo));
                 case "pdf" -> { try (var doc = Loader.loadPDF(bytesSemLink(arquivo))) {
                     if (doc.isEncrypted()) throw new IOException("PDF protegido por senha");
                     doc.getNumberOfPages();
                 } }
                 case "docx" -> { try (var doc = new XWPFDocument(Files.newInputStream(arquivo,
                         LinkOption.NOFOLLOW_LINKS))) { doc.getParagraphs().size(); } }
-                case "xlsx" -> { try (var livro = new XSSFWorkbook(Files.newInputStream(arquivo,
+                case "xlsx" -> { EdicaoXlsx.validarZip(bytesSemLink(arquivo));
+                    try (var livro = new XSSFWorkbook(Files.newInputStream(arquivo,
                         LinkOption.NOFOLLOW_LINKS))) { livro.getNumberOfSheets(); } }
                 default -> throw new IOException("formato inválido");
             }

@@ -344,7 +344,7 @@ O E2 transporta arquivos gerados por upload autenticado (até 8 MiB), capturas P
 decodificados) e respostas estruturadas das consultas de arquivos (até 32 KiB). O diário local
 guarda esses resultados até a VPS confirmar o recebimento; depois remove os payloads da cópia local.
 Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a resposta HTTP se perde.
-# Edição de TXT e Markdown
+# Edição de TXT, Markdown, JSON e XLSX
 
 `preparar_edicao` recebe o ID de `listar_arquivos`/`ler_arquivo`, o SHA-256
 `versaoEsperada`, destino `original` ou `copia` e até dez operações. O agente só
@@ -364,6 +364,30 @@ e `aplicar_desfazer` só restauram backup íntegro se o arquivo ainda tiver o ha
 produzido pela edição. A retenção padrão é de dez versões por arquivo e 100 MiB no
 total; após expurgo não é possível desfazer a versão removida. Os limites são
 configurados em `config.properties.example`.
+
+JSON aceita somente `atualizar_valor` de escalar existente por JSON Pointer, com tipo
+e valor anterior esperados. Chaves duplicadas, caminho ausente e tipo divergente são
+recusados. Os demais campos são preservados semanticamente; a serialização pode mudar
+espaços e representação lexical. Não há inserção ou remoção JSON nesta fase.
+
+XLSX usa Apache POI para atualizar ou preencher células, acrescentar/inserir linhas,
+inserir colunas e criar abas. O leitor permite buscar valor exato, restringindo por aba,
+cabeçalho ou tabela, e devolve todas as correspondências até 50. Busca ambígua não
+autoriza escolher a primeira ocorrência. `atualizar_por_item` recebe item e cabeçalho,
+resolve a célula no agente e recusa correspondências repetidas. A proposta confere aba/célula, tipo e valor
+anterior. Estilos e abas não tocadas são mantidos pela gravação do livro; texto que
+começa por `=`, `+`, `-` ou `@` é gravado como texto. Fórmulas novas passam pela lista
+restrita do criador e o resultado é apenas marcado para recálculo ao abrir, sem avaliação
+nem atualização confiável do cache. Substituir fórmula por outro tipo requer autorização
+explícita. Mesclas e proteção impedem edição do alvo.
+
+Ao acrescentar linha, o agente expande tabelas que terminam na linha anterior e séries
+de gráfico com intervalo direto da mesma aba. Inserção estrutural em tabela ou com
+gráfico é recusada, salvo cópia simplificada explicitamente confirmada, que omite os
+gráficos indicados na prévia. Arquivos criptografados, assinados, com macros, vínculos
+externos ou recursos não preserváveis são recusados. O XLSX editável respeita o limite
+de bytes configurado e limites internos de 256 entradas ZIP, 32 MiB expandidos,
+16 MiB por entrada e 100 mil células, sem reduzir as proteções do POI.
 
 O agente tenta obter bloqueio exclusivo antes de gravar. Editores externos que não
 respeitam locks ainda podem alterar o arquivo entre a última checagem e o move;

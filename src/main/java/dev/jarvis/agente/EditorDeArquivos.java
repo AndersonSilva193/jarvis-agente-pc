@@ -69,12 +69,26 @@ final class EditorDeArquivos {
         if (!hash(anterior).equals(versao)) throw new IOException("CONFLITO_DE_VERSAO");
         if (!LeitorDeArquivo.foiLido(id, versao))
             throw new IOException("leia o arquivo antes de propor edição");
-        Texto texto = decodificar(anterior);
         JsonNode operacoes = pedido.path("operacoes");
         if (!operacoes.isArray() || operacoes.isEmpty() || operacoes.size() > limites.maxOperacoes())
             throw new IOException("quantidade de operações inválida");
-        String proposto = texto.conteudo();
+        byte[] propostos;
+        String previa;
         int ocorrenciasSubstituidas = 0;
+        if (entrada.formato().equals("json")) {
+            EdicaoJson.Proposta propostaJson = EdicaoJson.preparar(anterior, operacoes);
+            propostos = propostaJson.bytes();
+            previa = propostaJson.previa();
+        } else if (entrada.formato().equals("xlsx")) {
+            boolean simplificar = pedido.path("simplificar").asBoolean(false);
+            if (simplificar && !destino.equals("copia"))
+                throw new IOException("simplificação exige destino cópia");
+            EdicaoXlsx.Proposta propostaXlsx = EdicaoXlsx.preparar(anterior, operacoes, simplificar);
+            propostos = propostaXlsx.bytes();
+            previa = propostaXlsx.previa();
+        } else {
+        Texto texto = decodificar(anterior);
+        String proposto = texto.conteudo();
         for (JsonNode operacao : operacoes) {
             String tipo = campo(operacao, "tipo");
             switch (tipo) {
@@ -130,7 +144,9 @@ final class EditorDeArquivos {
         }
         if (proposto.equals(texto.conteudo())) throw new IOException("nenhuma alteração proposta");
         validarControles(proposto);
-        byte[] propostos = codificar(proposto, texto.bom());
+        propostos = codificar(proposto, texto.bom());
+        previa = previa(texto.conteudo(), proposto);
+        }
         if (propostos.length == 0 || propostos.length > limites.maxBytesResultado())
             throw new IOException("resultado vazio ou acima do limite de bytes");
         String editId = UUID.randomUUID().toString();
@@ -147,7 +163,6 @@ final class EditorDeArquivos {
         registro.set("operacoes", operacoes.deepCopy());
         guardarBytes(editId, "proposta", propostos);
         guardar(editId, registro);
-        String previa = previa(texto.conteudo(), proposto);
         String previaLimitada = limitarUtf8(previa, limites.maxBytesPrevia());
         ObjectNode resposta = JSON.createObjectNode().put("editId", editId)
                 .put("id", id).put("nome", entrada.nome()).put("versaoAnterior", versao)
@@ -231,7 +246,10 @@ final class EditorDeArquivos {
             throw new IOException("CONFLITO_DE_VERSAO");
         byte[] backup = Files.readAllBytes(caminho(editId, "backup"));
         if (!hash(backup).equals(campo(r, "hashAnterior"))) throw new IOException("backup corrompido");
-        String diff = previa(decodificar(ler(arquivo)).conteudo(), decodificar(backup).conteudo());
+        String diff = switch (entrada.formato()) {
+            case "json", "xlsx" -> "Restaurar integralmente a versão anterior de " + entrada.nome();
+            default -> previa(decodificar(ler(arquivo)).conteudo(), decodificar(backup).conteudo());
+        };
         String limitado = limitarUtf8(diff, limites.maxBytesPrevia());
         return JSON.createObjectNode().put("editId", editId).put("nome", entrada.nome())
                 .put("hashAtual", campo(r, "hashProposto"))
@@ -356,7 +374,7 @@ final class EditorDeArquivos {
     }
 
     private Path seguro(CatalogoDeArquivos.Entrada e) throws IOException {
-        if (!e.formato().matches("txt|md")) throw new IOException("extensão incompatível com edição");
+        if (!e.formato().matches("txt|md|json|xlsx")) throw new IOException("extensão incompatível com edição");
         Path arquivo = catalogo.caminhoDe(e);
         Path real = arquivo.toRealPath();
         if (!real.getParent().equals(arquivo.getParent().toRealPath())
@@ -383,7 +401,8 @@ final class EditorDeArquivos {
         catch (IOException e) { throw new IOException("arquivo bloqueado ou indisponível", e); }
         if (bytes.length == 0 || bytes.length > limites.maxBytesArquivo())
             throw new IOException("arquivo fora do limite de edição");
-        for (byte b : bytes) if (b == 0) throw new IOException("arquivo binário recusado");
+        if (!arquivo.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".xlsx"))
+            for (byte b : bytes) if (b == 0) throw new IOException("arquivo binário recusado");
         return bytes;
     }
 

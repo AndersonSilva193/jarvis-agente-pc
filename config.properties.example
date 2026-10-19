@@ -16,7 +16,7 @@ computer.use.ativo=false
 # Um caminho relativo parte da pasta deste config.properties.
 pastaArquivos=
 
-# Edição de TXT/MD catalogados diretamente em pastaArquivos.
+# Edição de TXT/MD/JSON/XLSX catalogados diretamente em pastaArquivos.
 # Limites em bytes; a cópia e o original são revalidados no commit.
 edicao.maxBytesArquivo=1048576
 edicao.maxOperacoes=10
