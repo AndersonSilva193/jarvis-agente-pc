@@ -25,6 +25,7 @@ import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.xmlbeans.XmlCursor;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /** Edição limitada de células de um XLSX existente, sem calcular fórmulas. */
 final class EdicaoXlsx {
@@ -314,7 +315,7 @@ final class EdicaoXlsx {
     private static String texto(JsonNode no, String campo) {
         JsonNode valor = no.path(campo); return valor.isTextual() ? valor.stringValue() : "";
     }
-    private static String tipo(Cell celula) {
+    static String tipo(Cell celula) {
         return switch (celula.getCellType()) {
             case STRING -> "texto";
             case NUMERIC -> DateUtil.isCellDateFormatted(celula) ? "data" : "numero";
@@ -323,6 +324,19 @@ final class EdicaoXlsx {
             case BLANK -> "vazio";
             default -> "incompatível";
         };
+    }
+    /** O par devolvido pela leitura é exatamente o que preparar aceita como pré-condição. */
+    static void descreverValorAnterior(Cell celula, ObjectNode item) {
+        item.put("tipo", tipo(celula));
+        switch (tipo(celula)) {
+            case "texto" -> item.put("valorAnterior", celula.getStringCellValue());
+            case "numero" -> item.put("valorAnterior", celula.getNumericCellValue());
+            case "data" -> item.put("valorAnterior", DateUtil.getLocalDateTime(
+                    celula.getNumericCellValue()).toLocalDate().toString());
+            case "booleano" -> item.put("valorAnterior", celula.getBooleanCellValue());
+            case "formula" -> item.put("valorAnterior", celula.getCellFormula());
+            default -> item.putNull("valorAnterior");
+        }
     }
     private static boolean esperado(Cell celula, JsonNode valor) {
         if (celula == null || celula.getCellType() == CellType.BLANK) return valor.isNull();

@@ -374,8 +374,11 @@ XLSX usa Apache POI para atualizar ou preencher células, acrescentar/inserir li
 inserir colunas e criar abas. O leitor permite buscar valor exato, restringindo por aba,
 cabeçalho ou tabela, e devolve todas as correspondências até 50. Busca ambígua não
 autoriza escolher a primeira ocorrência. `atualizar_por_item` recebe item e cabeçalho,
-resolve a célula no agente e recusa correspondências repetidas. A proposta confere aba/célula, tipo e valor
-anterior. Estilos e abas não tocadas são mantidos pela gravação do livro; texto que
+resolve a célula no agente e recusa correspondências repetidas. A proposta confere
+aba/célula, tipo e valor anterior.
+Na leitura XLSX, `tipo` e `valorAnterior` correspondem aos parâmetros da edição:
+`booleano` usa um booleano JSON, e fórmula usa a expressão em vez do valor em cache.
+Estilos e abas não tocadas são mantidos pela gravação do livro; texto que
 começa por `=`, `+`, `-` ou `@` é gravado como texto. Fórmulas novas passam pela lista
 restrita do criador e o resultado é apenas marcado para recálculo ao abrir, sem avaliação
 nem atualização confiável do cache. Substituir fórmula por outro tipo requer autorização

@@ -278,10 +278,15 @@ final class LeitorDeArquivo {
                     Cell celula = linha.getCell(c - 1); if (celula == null) continue;
                     ObjectNode item = celulas.addObject();
                     item.put("endereco", celula.getAddress().formatAsString());
-                    item.put("tipo", celula.getCellType().name());
+                    item.put("tipoArquivo", celula.getCellType().name());
+                    EdicaoXlsx.descreverValorAnterior(celula, item);
                     switch (celula.getCellType()) {
                         case STRING -> item.put("valor", celula.getStringCellValue());
-                        case NUMERIC -> item.put("valor", celula.getNumericCellValue());
+                        case NUMERIC -> {
+                            if ("data".equals(item.path("tipo").asText()))
+                                item.put("valor", item.path("valorAnterior").asText());
+                            else item.put("valor", celula.getNumericCellValue());
+                        }
                         case BOOLEAN -> item.put("valor", celula.getBooleanCellValue());
                         case ERROR -> item.put("valor", celula.getErrorCellValue());
                         case FORMULA -> {
@@ -295,7 +300,7 @@ final class LeitorDeArquivo {
                                 default -> item.put("valor", "");
                             }
                         }
-                        default -> item.put("valor", "");
+                        default -> item.putNull("valor");
                     }
                     String celulaJson = item.toString();
                     if (inicioCelula > 0 || !cabe(saida)) {
@@ -365,12 +370,15 @@ final class LeitorDeArquivo {
                             || !titulo.getStringCellValue().strip().equalsIgnoreCase(cabecalho)) continue;
                 }
                 total++;
-                if (encontrados.size() < 50) encontrados.addObject()
-                        .put("aba", folha.getSheetName())
-                        .put("celula", celula.getAddress().formatAsString())
-                        .put("linha", celula.getRowIndex() + 1)
-                        .put("coluna", celula.getColumnIndex() + 1)
-                        .put("tipo", celula.getCellType().name()).put("valor", valor);
+                if (encontrados.size() < 50) {
+                    ObjectNode item = encontrados.addObject()
+                            .put("aba", folha.getSheetName())
+                            .put("celula", celula.getAddress().formatAsString())
+                            .put("linha", celula.getRowIndex() + 1)
+                            .put("coluna", celula.getColumnIndex() + 1)
+                            .put("tipoArquivo", celula.getCellType().name()).put("valor", valor);
+                    EdicaoXlsx.descreverValorAnterior(celula, item);
+                }
             }
         }
         saida.put("totalCorrespondencias", total).put("truncado", total > 50);

@@ -167,6 +167,37 @@ class EdicaoEstruturadaTest {
         }
     }
 
+    @Test void leituraEEdicaoConcordamSobreCelulaBooleana() throws Exception {
+        Path pasta = Files.createDirectory(temporaria.resolve("clientes"));
+        Path arquivo = pasta.resolve("clientes.xlsx");
+        try (var livro = new XSSFWorkbook()) {
+            var aba = livro.createSheet("Clientes");
+            aba.createRow(0).createCell(0).setCellValue("Cliente");
+            aba.getRow(0).createCell(4).setCellValue("Pago");
+            aba.createRow(2).createCell(0).setCellValue("Oficina Fictícia");
+            aba.getRow(2).createCell(4).setCellValue(false);
+            try (var out = Files.newOutputStream(arquivo)) { livro.write(out); }
+        }
+        String id = catalogar(pasta, "clientes.xlsx");
+        var leitura = new LeitorDeArquivo(pasta).ler(json.readTree("{\"id\":\"" + id
+                + "\",\"aba\":\"Clientes\",\"linhaInicial\":3,\"linhaFinal\":3} "));
+        var celula = leitura.path("celulas").get(1);
+        assertEquals("E3", celula.path("endereco").asText());
+        assertEquals("booleano", celula.path("tipo").asText());
+        assertFalse(celula.path("valorAnterior").asBoolean());
+        var operacao = json.createObjectNode().put("tipo", "atualizar_por_item")
+                .put("itemValor", "Oficina Fictícia").put("cabecalhoAlvo", "Pago")
+                .put("tipoAnterior", celula.path("tipo").asText())
+                .put("tipoNovo", "booleano").put("valorNovo", true);
+        operacao.set("valorAnterior", celula.path("valorAnterior"));
+        var proposta = EdicaoXlsx.preparar(Files.readAllBytes(arquivo),
+                json.createArrayNode().add(operacao));
+        assertTrue(proposta.previa().contains("Clientes!E3"));
+        try (var alterado = new XSSFWorkbook(new java.io.ByteArrayInputStream(proposta.bytes()))) {
+            assertTrue(alterado.getSheet("Clientes").getRow(2).getCell(4).getBooleanCellValue());
+        }
+    }
+
     @Test void formulaSoPodeSerSubstituidaComAutorizacaoExplicita() throws Exception {
         try (var livro = new XSSFWorkbook()) {
             var aba = livro.createSheet("Dados");
