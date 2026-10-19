@@ -376,6 +376,8 @@ cabeçalho ou tabela, e devolve todas as correspondências até 50. Busca ambíg
 autoriza escolher a primeira ocorrência. `atualizar_por_item` recebe item e cabeçalho,
 resolve a célula no agente e recusa correspondências repetidas. A proposta confere
 aba/célula, tipo e valor anterior.
+`listar_arquivos` também encontra `tabela_exemplo.xlsx` pela busca “tabela exemplo”.
+Na preparação, o catálogo informa se esse nome falado identifica um único XLSX.
 Na leitura XLSX, `tipo` e `valorAnterior` correspondem aos parâmetros da edição:
 `booleano` usa um booleano JSON, e fórmula usa a expressão em vez do valor em cache.
 Estilos e abas não tocadas são mantidos pela gravação do livro; texto que

@@ -86,6 +86,7 @@ class EdicaoEstruturadaTest {
                 + "\"tipoAnterior\":\"numero\",\"valorAnterior\":5,\"tipoNovo\":\"numero\",\"valorNovo\":7}";
         var proposta = editor.preparar(json.readTree(pedido(id, antes, op)));
         assertTrue(proposta.path("previa").asText().contains("Dados!A1"));
+        assertTrue(proposta.path("apelidoUnico").asBoolean());
         editor.aplicar(new ComandoRecebido("33333333-3333-3333-3333-333333333333",
                 "aplicar_edicao", "", json.readTree("{\"editId\":\"" + proposta.path("editId").asText() + "\"}")));
         if (Boolean.getBoolean("jarvis.visual")) {
@@ -196,6 +197,30 @@ class EdicaoEstruturadaTest {
         try (var alterado = new XSSFWorkbook(new java.io.ByteArrayInputStream(proposta.bytes()))) {
             assertTrue(alterado.getSheet("Clientes").getRow(2).getCell(4).getBooleanCellValue());
         }
+    }
+
+    @Test void catalogoBuscaNomeFaladoEIdentificaApelidoAmbiguo() throws Exception {
+        Path pasta = Files.createDirectory(temporaria.resolve("apelidos"));
+        try (var livro = new XSSFWorkbook()) {
+            livro.createSheet("Dados").createRow(0).createCell(0).setCellValue("x");
+            try (var out = Files.newOutputStream(pasta.resolve("tabela_exemplo.xlsx"))) {
+                livro.write(out);
+            }
+            var catalogoInicial = new CatalogoDeArquivos(pasta);
+            var unica = catalogoInicial.listar(json.readTree("{\"nome\":\"tabela exemplo\"}"));
+            assertEquals(1, unica.path("total").asInt());
+            assertTrue(catalogoInicial.apelidoUnico(catalogoInicial.porId(
+                    unica.path("arquivos").get(0).path("id").asText())));
+            try (var out = Files.newOutputStream(pasta.resolve("tabela-exemplo.xlsx"))) {
+                livro.write(out);
+            }
+        }
+        var catalogo = new CatalogoDeArquivos(pasta);
+        var busca = catalogo.listar(json.readTree("{\"nome\":\"tabela exemplo\","
+                + "\"formato\":\"xlsx\"}"));
+        assertEquals(2, busca.path("total").asInt());
+        String id = busca.path("arquivos").get(0).path("id").asText();
+        assertFalse(catalogo.apelidoUnico(catalogo.porId(id)));
     }
 
     @Test void formulaSoPodeSerSubstituidaComAutorizacaoExplicita() throws Exception {

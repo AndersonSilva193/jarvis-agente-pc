@@ -10,6 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
@@ -35,6 +36,24 @@ final class CatalogoDeArquivos {
     private final Path pasta;
 
     record Entrada(String id, String nome, String formato, long tamanho, long modificado, String hash) { }
+
+    static String nomeFalado(String nome) {
+        return Normalizer.normalize(nome, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT)
+                .replaceAll("[^\\p{L}\\p{N}]+", " ").trim().replaceAll("\\s+", " ");
+    }
+
+    synchronized boolean apelidoUnico(Entrada alvo) throws IOException {
+        String nome = alvo.nome();
+        int ponto = nome.lastIndexOf('.');
+        if (!alvo.formato().equals("xlsx") || ponto <= 0) return false;
+        String apelido = nomeFalado(nome.substring(0, ponto));
+        return carregar().stream().filter(e -> e.formato().equals("xlsx"))
+                .filter(e -> {
+                    int separador = e.nome().lastIndexOf('.');
+                    return separador > 0 && nomeFalado(e.nome().substring(0, separador)).equals(apelido);
+                }).count() == 1;
+    }
 
     CatalogoDeArquivos(Path pasta) { this.pasta = pasta.toAbsolutePath().normalize(); }
 
@@ -152,7 +171,10 @@ final class CatalogoDeArquivos {
             }
         }
         if (mudou) salvar(entradas);
-        List<Entrada> filtradas = entradas.stream().filter(e -> e.nome().toLowerCase(Locale.ROOT).contains(nome))
+        String buscaFalado = nomeFalado(nome);
+        List<Entrada> filtradas = entradas.stream()
+                .filter(e -> e.nome().toLowerCase(Locale.ROOT).contains(nome)
+                        || nomeFalado(e.nome()).contains(buscaFalado))
                 .filter(e -> formato.isEmpty() || e.formato().equals(formato))
                 .sorted(Comparator.comparing(Entrada::nome).thenComparing(Entrada::id)).toList();
         ObjectNode saida = JSON.createObjectNode();
