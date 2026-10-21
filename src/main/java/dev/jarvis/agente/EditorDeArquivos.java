@@ -172,8 +172,7 @@ final class EditorDeArquivos {
                 .put("resumo", resumo + "; original preservado.")
                 .put("previa", previaLimitada)
                 .put("previaTruncada", previaLimitada.length() < previa.length());
-        if (entrada.formato().equals("xlsx"))
-            resposta.put("apelidoUnico", catalogo.apelidoUnico(entrada));
+        resposta.put("apelidoUnico", catalogo.apelidoUnico(entrada));
         log.info("edicao preparada id=" + editId + " arquivo=" + id + " hash=" + versao
                 + " proposto=" + hash(propostos) + " destino=" + destino);
         return resposta;

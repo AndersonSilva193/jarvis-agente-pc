@@ -223,6 +223,36 @@ class EdicaoEstruturadaTest {
         assertFalse(catalogo.apelidoUnico(catalogo.porId(id)));
     }
 
+    @Test void apelidoValeParaMarkdownEAmbiguidadeCruzaFormatos() throws Exception {
+        Path pasta = Files.createDirectory(temporaria.resolve("apelidos-md"));
+        Path arquivo = pasta.resolve("assistentes_ia_mais_usados_2026.md");
+        Files.writeString(arquivo, "# Assistentes\n\n- Apple\n- Outra\n");
+        String id = catalogar(pasta, "assistentes_ia_mais_usados_2026.md");
+        var catalogo = new CatalogoDeArquivos(pasta);
+        assertTrue(catalogo.apelidoUnico(catalogo.porId(id)), "o nome falado de um .md identifica");
+
+        // A proposta leva o campo para qualquer formato, não só planilha.
+        var editor = new EditorDeArquivos(pasta, temporaria.resolve("md"));
+        String op = "{\"tipo\":\"substituir_todas_ocorrencias\",\"textoAtual\":\"- Apple\\n\","
+                + "\"textoNovo\":\"\"}";
+        var proposta = editor.preparar(json.readTree(
+                pedido(id, Files.readAllBytes(arquivo), op)));
+        assertTrue(proposta.path("apelidoUnico").asBoolean());
+
+        // Mesmo apelido em outro formato torna a escolha ambígua: quem fala o nome não está
+        // escolhendo entre o .md e o .xlsx.
+        try (var livro = new XSSFWorkbook()) {
+            livro.createSheet("Dados").createRow(0).createCell(0).setCellValue("x");
+            try (var out = Files.newOutputStream(
+                    pasta.resolve("assistentes-ia-mais-usados-2026.xlsx"))) {
+                livro.write(out);
+            }
+        }
+        var depois = new CatalogoDeArquivos(pasta);
+        assertEquals(2, depois.listar(json.readTree("{}")).path("total").asInt());
+        assertFalse(depois.apelidoUnico(depois.porId(id)));
+    }
+
     @Test void formulaSoPodeSerSubstituidaComAutorizacaoExplicita() throws Exception {
         try (var livro = new XSSFWorkbook()) {
             var aba = livro.createSheet("Dados");

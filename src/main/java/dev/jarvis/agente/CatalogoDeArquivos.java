@@ -43,12 +43,19 @@ final class CatalogoDeArquivos {
                 .replaceAll("[^\\p{L}\\p{N}]+", " ").trim().replaceAll("\\s+", " ");
     }
 
+    /**
+     * Diz se o nome falado do alvo — o nome sem extensão — serve para identificá-lo sozinho.
+     *
+     * A contagem percorre o catálogo inteiro, e não só o formato do alvo: quem fala "edite o
+     * relatório" não está escolhendo entre {@code relatorio.md} e {@code relatorio.xlsx}, então
+     * os dois juntos tornam o apelido ambíguo e a edição é recusada do outro lado.
+     */
     synchronized boolean apelidoUnico(Entrada alvo) throws IOException {
         String nome = alvo.nome();
         int ponto = nome.lastIndexOf('.');
-        if (!alvo.formato().equals("xlsx") || ponto <= 0) return false;
+        if (ponto <= 0) return false;
         String apelido = nomeFalado(nome.substring(0, ponto));
-        return carregar().stream().filter(e -> e.formato().equals("xlsx"))
+        return carregar().stream()
                 .filter(e -> {
                     int separador = e.nome().lastIndexOf('.');
                     return separador > 0 && nomeFalado(e.nome().substring(0, separador)).equals(apelido);
