@@ -177,7 +177,7 @@ public final class AgentePc {
                         diario.incerto(registro.id());
                         registro = diario.obter(registro.id());
                     }
-                    if (cliente.enviarResultadoE2(registro)) diario.confirmarEnvio(registro.id());
+                    entregar(cliente, diario, registro);
                 }
                 diario.removerAntigos();
                 ClienteJarvis.EntregaE2 entrega = cliente.buscarComandoE2();
@@ -190,10 +190,8 @@ public final class AgentePc {
                     DiarioE2.Registro anterior = diario.obter(comando.id());
                     if (anterior != null && !anterior.estado().equals("recebido")) {
                         if (anterior.estado().equals("executando")) diario.incerto(comando.id());
-                        if (!diario.obter(comando.id()).enviado()) {
-                            if (cliente.enviarResultadoE2(diario.obter(comando.id())))
-                                diario.confirmarEnvio(comando.id());
-                        }
+                        if (!diario.obter(comando.id()).enviado())
+                            entregar(cliente, diario, diario.obter(comando.id()));
                         continue;
                     }
                     if (anterior == null) diario.recebido(comando.id());
@@ -251,8 +249,7 @@ public final class AgentePc {
                     } else {
                         diario.incerto(comando.id());
                     }
-                    DiarioE2.Registro pronto = diario.obter(comando.id());
-                    if (cliente.enviarResultadoE2(pronto)) diario.confirmarEnvio(comando.id());
+                    entregar(cliente, diario, diario.obter(comando.id()));
                 }
                 espera = ESPERA_INICIAL;
             } catch (InterruptedException e) {
@@ -289,6 +286,26 @@ public final class AgentePc {
      * <p>Arquivo porque o agente roda sem janela (javaw, pela tarefa agendada) e sem ele não
      * haveria onde ver por que um comando falhou.
      */
+    /**
+     * Entrega um resultado à VPS e, se ela recusar de vez, desiste dele.
+     *
+     * <p>O replay dos pendentes é a <b>primeira</b> coisa de cada volta do laço, antes do long
+     * poll. Um resultado que o servidor nunca vai aceitar — 4xx — portanto não é só um resultado
+     * perdido: ele volta de 60 em 60 segundos e o agente nunca mais busca comando nenhum. Marcar
+     * como entregue é o que tira o veneno da cabeça da fila; fica no log para se saber o que se
+     * perdeu. Erro de rede e 5xx continuam sendo tentados para sempre, que é o certo para eles.
+     */
+    private static void entregar(ClienteJarvis cliente, DiarioE2 diario, DiarioE2.Registro registro)
+            throws IOException, InterruptedException {
+        try {
+            if (cliente.enviarResultadoE2(registro)) diario.confirmarEnvio(registro.id());
+        } catch (RecusaDefinitiva recusa) {
+            log.warning("a VPS recusou o resultado de " + registro.id() + " ("
+                    + recusa.getMessage() + "); desisto dele para não travar a fila");
+            diario.confirmarEnvio(registro.id());
+        }
+    }
+
     private static void configurarLog() {
         Logger raiz = Logger.getLogger("");
         for (var antigo : raiz.getHandlers()) {

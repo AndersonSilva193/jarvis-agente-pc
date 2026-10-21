@@ -112,6 +112,8 @@ final class ClienteJarvis {
                 .timeout(TIMEOUT_RESULTADO).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(corpo))).build();
         int status = http.send(pedido, HttpResponse.BodyHandlers.discarding()).statusCode();
+        if (RecusaDefinitiva.definitivo(status))
+            throw new RecusaDefinitiva("resultado E2 HTTP " + status, status);
         if (status != 204) throw new IOException("resultado E2 HTTP " + status);
         return true;
     }
