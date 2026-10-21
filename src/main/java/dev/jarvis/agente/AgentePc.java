@@ -224,7 +224,7 @@ public final class AgentePc {
                                     default -> editor.desfazer(comando);
                                 };
                             } catch (Exception falha) {
-                                resultado = Resultado.falhou(comando, erroDeEdicao(falha));
+                                resultado = DiagnosticoEdicao.resultado(comando, falha);
                             }
                             diario.concluir(comando.id(), resultado.ok() ? "concluído"
                                     : resultado.mensagem().startsWith("resultado_incerto")
@@ -281,18 +281,6 @@ public final class AgentePc {
         return mensagem == null || mensagem.isBlank()
                 ? e.getClass().getSimpleName()
                 : e.getClass().getSimpleName() + ": " + mensagem;
-    }
-
-    private static String erroDeEdicao(Exception e) {
-        String mensagem = e.getMessage();
-        if (mensagem == null) return "edição recusada";
-        for (String inicio : java.util.List.of("CONFLITO_", "resultado_incerto", "arquivo ",
-                "pasta ", "diretório ", "backup ", "temporário ", "substituição ",
-                "codificação ", "quebra ", "leia ", "reescrita ", "proposta ",
-                "edição ", "extensão ", "campo ", "quantidade ", "pedido ",
-                "versão ", "operação ", "resultado ", "cópia ", "nenhuma "))
-            if (mensagem.startsWith(inicio)) return mensagem;
-        return "não foi possível editar; arquivo ou disco indisponível";
     }
 
     /**

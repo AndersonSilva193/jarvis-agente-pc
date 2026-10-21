@@ -57,21 +57,21 @@ final class EditorDeArquivos {
         if (pedido == null || !pedido.isObject()
                 || pedido.toString().getBytes(StandardCharsets.UTF_8).length
                         > limites.maxBytesResultado() + 20_000)
-            throw new IOException("pedido de edição acima do limite");
+            throw new FalhaEdicao("pedido de edição acima do limite");
         String id = campo(pedido, "id");
         String versao = campo(pedido, "versaoEsperada");
         String destino = campo(pedido, "destino");
         if (!versao.matches("[0-9a-f]{64}") || !destino.matches("original|copia"))
-            throw new IOException("versão ou destino inválido");
+            throw new FalhaEdicao("versão ou destino inválido");
         CatalogoDeArquivos.Entrada entrada = catalogo.porId(id);
         Path arquivo = seguro(entrada);
         byte[] anterior = ler(arquivo);
-        if (!hash(anterior).equals(versao)) throw new IOException("CONFLITO_DE_VERSAO");
+        if (!hash(anterior).equals(versao)) throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO");
         if (!LeitorDeArquivo.foiLido(id, versao))
-            throw new IOException("leia o arquivo antes de propor edição");
+            throw new FalhaEdicao("leia o arquivo antes de propor edição");
         JsonNode operacoes = pedido.path("operacoes");
         if (!operacoes.isArray() || operacoes.isEmpty() || operacoes.size() > limites.maxOperacoes())
-            throw new IOException("quantidade de operações inválida");
+            throw new FalhaEdicao("quantidade de operações inválida");
         byte[] propostos;
         String previa;
         int ocorrenciasSubstituidas = 0;
@@ -82,7 +82,7 @@ final class EditorDeArquivos {
         } else if (entrada.formato().equals("xlsx")) {
             boolean simplificar = pedido.path("simplificar").asBoolean(false);
             if (simplificar && !destino.equals("copia"))
-                throw new IOException("simplificação exige destino cópia");
+                throw new FalhaEdicao("simplificação exige destino cópia");
             EdicaoXlsx.Proposta propostaXlsx = EdicaoXlsx.preparar(anterior, operacoes, simplificar);
             propostos = propostaXlsx.bytes();
             previa = propostaXlsx.previa();
@@ -97,17 +97,17 @@ final class EditorDeArquivos {
                     String novo = campoBruto(operacao, "textoNovo");
                     if (atual.isEmpty() || !proposto.contains(atual)
                             || proposto.indexOf(atual) != proposto.lastIndexOf(atual))
-                        throw new IOException("CONFLITO_DE_TRECHO: esperado exatamente uma ocorrência");
+                        throw new FalhaEdicao("CONFLITO_DE_TRECHO", "CONFLITO_DE_TRECHO: esperado exatamente uma ocorrência");
                     proposto = proposto.replace(atual, normalizarQuebras(novo, texto.crlf()));
                     ocorrenciasSubstituidas++;
                 }
                 case "substituir_todas_ocorrencias" -> {
                     String atual = normalizarQuebras(campoBruto(operacao, "textoAtual"), texto.crlf());
                     String novo = normalizarQuebras(campoBruto(operacao, "textoNovo"), texto.crlf());
-                    if (atual.isEmpty()) throw new IOException("textoAtual vazio");
+                    if (atual.isEmpty()) throw new FalhaEdicao("textoAtual vazio");
                     JsonNode ignorar = operacao.path("ignorarMaiusculas");
                     if (!ignorar.isMissingNode() && !ignorar.isBoolean())
-                        throw new IOException("ignorarMaiusculas deve ser booleano");
+                        throw new FalhaEdicao("ignorarMaiusculas deve ser booleano");
                     int opcoes = ignorar.asBoolean(false)
                             ? Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE : 0;
                     Matcher busca = Pattern.compile(Pattern.quote(atual), opcoes).matcher(proposto);
@@ -117,9 +117,9 @@ final class EditorDeArquivos {
                         tamanhoProjetado += (long) novo.length() - (busca.end() - busca.start());
                         encontrados++;
                     }
-                    if (encontrados == 0) throw new IOException("CONFLITO_DE_TRECHO: nenhuma ocorrência");
+                    if (encontrados == 0) throw new FalhaEdicao("CONFLITO_DE_TRECHO", "CONFLITO_DE_TRECHO: nenhuma ocorrência");
                     if (tamanhoProjetado > limites.maxBytesResultado())
-                        throw new IOException("resultado acima do limite de bytes");
+                        throw new FalhaEdicao("resultado acima do limite de bytes");
                     busca.reset();
                     StringBuffer alterado = new StringBuffer();
                     while (busca.find()) {
@@ -134,21 +134,21 @@ final class EditorDeArquivos {
                 case "substituir_conteudo" -> {
                     if (!pedido.path("leituraIntegral").asBoolean(false)
                             || !LeitorDeArquivo.foiLidoIntegralmente(id, versao))
-                        throw new IOException("reescrita exige leitura integral da mesma versão");
+                        throw new FalhaEdicao("reescrita exige leitura integral da mesma versão");
                     proposto = normalizarQuebras(campoBruto(operacao, "conteudo"), texto.crlf());
                 }
-                default -> throw new IOException("operação desconhecida");
+                default -> throw new FalhaEdicao("operação desconhecida");
             }
             if (proposto.length() > limites.maxBytesResultado())
-                throw new IOException("resultado acima do limite de bytes");
+                throw new FalhaEdicao("resultado acima do limite de bytes");
         }
-        if (proposto.equals(texto.conteudo())) throw new IOException("nenhuma alteração proposta");
+        if (proposto.equals(texto.conteudo())) throw new FalhaEdicao("nenhuma alteração proposta");
         validarControles(proposto);
         propostos = codificar(proposto, texto.bom());
         previa = previa(texto.conteudo(), proposto);
         }
         if (propostos.length == 0 || propostos.length > limites.maxBytesResultado())
-            throw new IOException("resultado vazio ou acima do limite de bytes");
+            throw new FalhaEdicao("resultado vazio ou acima do limite de bytes");
         String editId = UUID.randomUUID().toString();
         Instant expira = Instant.now().plusSeconds(120);
         String resumo = operacoes.size() + " operação(ões); " + ocorrenciasSubstituidas
@@ -186,33 +186,33 @@ final class EditorDeArquivos {
         if (estado.equals("concluida")) return resultadoConcluido(comando, r);
         if (estado.equals("gravando")) return recuperar(comando, r);
         if (!estado.equals("preparada") || Instant.now().isAfter(Instant.parse(campo(r, "expiraEm"))))
-            throw new IOException("proposta ausente, consumida ou expirada");
+            throw new FalhaEdicao("proposta ausente, consumida ou expirada");
         CatalogoDeArquivos.Entrada entrada = catalogo.porId(campo(r, "id"));
         Path arquivo = seguro(entrada);
         byte[] anterior = ler(arquivo);
-        if (!hash(anterior).equals(campo(r, "hashAnterior"))) throw new IOException("CONFLITO_DE_VERSAO");
+        if (!hash(anterior).equals(campo(r, "hashAnterior"))) throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO");
         if (!chaveArquivo(arquivo).equals(campo(r, "chaveArquivo")))
-            throw new IOException("CONFLITO_DE_VERSAO: arquivo substituído desde a preparação");
+            throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO: arquivo substituído desde a preparação");
         byte[] proposta = Files.readAllBytes(caminho(editId, "proposta"));
-        if (!hash(proposta).equals(campo(r, "hashProposto"))) throw new IOException("proposta corrompida");
+        if (!hash(proposta).equals(campo(r, "hashProposto"))) throw new FalhaEdicao("proposta corrompida");
         boolean copia = campo(r, "destino").equals("copia");
         Path alvo = copia ? nomeCopia(arquivo, editId) : arquivo;
         if (copia && Files.exists(alvo, LinkOption.NOFOLLOW_LINKS))
-            throw new IOException("cópia já existe");
+            throw new FalhaEdicao("cópia já existe");
         if (!copia) { checarBloqueio(arquivo); backup(editId, r, anterior); }
         Path temporario = Files.createTempFile(arquivo.getParent(), ".jarvis-edicao-", ".tmp");
         try {
             Files.write(temporario, proposta, StandardOpenOption.TRUNCATE_EXISTING);
             sincronizar(temporario);
             if (!Arrays.equals(Files.readAllBytes(temporario), proposta))
-                throw new IOException("temporário não validado");
+                throw new FalhaEdicao("temporário não validado");
             if (!copia) {
                 preservarAtributos(arquivo, temporario);
                 checarBloqueio(arquivo);
                 if (!chaveArquivo(arquivo).equals(campo(r, "chaveArquivo")))
-                    throw new IOException("CONFLITO_DE_VERSAO: arquivo substituído");
+                    throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO: arquivo substituído");
                 if (!hash(ler(arquivo)).equals(campo(r, "hashAnterior")))
-                    throw new IOException("CONFLITO_DE_VERSAO");
+                    throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO");
             }
             r.put("estado", "gravando").put("comandoId", comando.id()); guardar(editId, r);
             try {
@@ -220,7 +220,7 @@ final class EditorDeArquivos {
                 else Files.move(temporario, alvo, StandardCopyOption.ATOMIC_MOVE,
                         StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException e) {
-                throw new IOException("substituição atômica não suportada; original preservado", e);
+                throw new FalhaEdicao("substituição atômica não suportada; original preservado", e);
             }
             r.put("estado", "concluida").put("nomeResultado", alvo.getFileName().toString());
             guardar(editId, r);
@@ -232,7 +232,7 @@ final class EditorDeArquivos {
             return resultadoConcluido(comando, r);
         } catch (IOException e) {
             if (java.util.Set.of("gravando", "concluida").contains(r.path("estado").asText()))
-                throw new IOException("resultado_incerto: gravação iniciada; verifique o hash pelo editId", e);
+                throw new FalhaEdicao("RESULTADO_INCERTO", "resultado_incerto: gravação iniciada; verifique o hash pelo editId", e);
             throw e;
         } finally { Files.deleteIfExists(temporario); }
     }
@@ -241,13 +241,13 @@ final class EditorDeArquivos {
         String editId = campo(pedido, "editId");
         ObjectNode r = registro(editId);
         if (!campo(r, "estado").equals("concluida") || !campo(r, "destino").equals("original"))
-            throw new IOException("edição original concluída não encontrada");
+            throw new FalhaEdicao("edição original concluída não encontrada");
         CatalogoDeArquivos.Entrada entrada = catalogo.porId(campo(r, "id"));
         Path arquivo = seguro(entrada);
         if (!hash(ler(arquivo)).equals(campo(r, "hashProposto")))
-            throw new IOException("CONFLITO_DE_VERSAO");
+            throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO");
         byte[] backup = Files.readAllBytes(caminho(editId, "backup"));
-        if (!hash(backup).equals(campo(r, "hashAnterior"))) throw new IOException("backup corrompido");
+        if (!hash(backup).equals(campo(r, "hashAnterior"))) throw new FalhaEdicao("backup corrompido");
         String diff = switch (entrada.formato()) {
             case "json", "xlsx" -> "Restaurar integralmente a versão anterior de " + entrada.nome();
             default -> previa(decodificar(ler(arquivo)).conteudo(), decodificar(backup).conteudo());
@@ -266,17 +266,17 @@ final class EditorDeArquivos {
         if (campo(r, "estado").equals("desfeita"))
             return Resultado.feito(comando, "edição já desfeita: " + editId);
         if (!campo(r, "estado").equals("concluida") || !campo(r, "destino").equals("original"))
-            throw new IOException("edição não pode ser desfeita");
+            throw new FalhaEdicao("edição não pode ser desfeita");
         CatalogoDeArquivos.Entrada entrada = catalogo.porId(campo(r, "id"));
         Path arquivo = seguro(entrada);
         byte[] atual = ler(arquivo);
-        if (!hash(atual).equals(campo(r, "hashProposto"))) throw new IOException("CONFLITO_DE_VERSAO");
+        if (!hash(atual).equals(campo(r, "hashProposto"))) throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO");
         byte[] backup = Files.readAllBytes(caminho(editId, "backup"));
-        if (!hash(backup).equals(campo(r, "hashAnterior"))) throw new IOException("backup corrompido");
+        if (!hash(backup).equals(campo(r, "hashAnterior"))) throw new FalhaEdicao("backup corrompido");
         guardarBytes(editId, "backup-revertido", atual);
         if (!hash(Files.readAllBytes(caminho(editId, "backup-revertido")))
                 .equals(campo(r, "hashProposto")))
-            throw new IOException("backup do estado revertido não validado");
+            throw new FalhaEdicao("backup do estado revertido não validado");
         try { expurgarBackups(editId + ".backup-revertido"); }
         catch (IOException e) { Files.deleteIfExists(caminho(editId, "backup-revertido")); throw e; }
         checarBloqueio(arquivo);
@@ -286,8 +286,8 @@ final class EditorDeArquivos {
             sincronizar(temporario);
             preservarAtributos(arquivo, temporario);
             if (!hash(Files.readAllBytes(temporario)).equals(campo(r, "hashAnterior")))
-                throw new IOException("temporário de desfazer inválido");
-            if (!hash(ler(arquivo)).equals(campo(r, "hashProposto"))) throw new IOException("CONFLITO_DE_VERSAO");
+                throw new FalhaEdicao("temporário de desfazer inválido");
+            if (!hash(ler(arquivo)).equals(campo(r, "hashProposto"))) throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO");
             checarBloqueio(arquivo);
             r.put("estado", "desfazendo").put("comandoId", comando.id()); guardar(editId, r);
             Files.move(temporario, arquivo, StandardCopyOption.ATOMIC_MOVE,
@@ -299,7 +299,7 @@ final class EditorDeArquivos {
                     JSON.createObjectNode().put("editId", editId).put("versao", campo(r, "hashAnterior")));
         } catch (IOException e) {
             if (java.util.Set.of("desfazendo", "desfeita").contains(r.path("estado").asText()))
-                throw new IOException("resultado_incerto: restauração iniciada; verifique o hash pelo editId", e);
+                throw new FalhaEdicao("RESULTADO_INCERTO", "resultado_incerto: restauração iniciada; verifique o hash pelo editId", e);
             throw e;
         } finally { Files.deleteIfExists(temporario); }
     }
@@ -361,7 +361,7 @@ final class EditorDeArquivos {
             else catalogo.atualizar(entrada.id(), campo(r, "hashAnterior"));
             return resultadoConcluido(comando, r);
         }
-        throw new IOException("resultado_incerto: não foi possível provar o estado após gravação");
+        throw new FalhaEdicao("RESULTADO_INCERTO", "resultado_incerto: não foi possível provar o estado após gravação");
     }
 
     private Resultado resultadoConcluido(ComandoRecebido comando, ObjectNode r) throws IOException {
@@ -369,30 +369,30 @@ final class EditorDeArquivos {
         Path alvo = campo(r, "destino").equals("copia")
                 ? nomeCopia(seguro(e), campo(r, "editId")) : seguro(e);
         if (!hash(ler(alvo)).equals(campo(r, "hashProposto")))
-            throw new IOException("CONFLITO_DE_VERSAO: resultado mudou depois da edição");
+            throw new FalhaEdicao("CONFLITO_DE_VERSAO", "CONFLITO_DE_VERSAO: resultado mudou depois da edição");
         return new Resultado(comando.id(), true, alvo.getFileName().toString(), null, alvo,
                 JSON.createObjectNode().put("editId", campo(r, "editId"))
                         .put("versao", campo(r, "hashProposto")));
     }
 
     private Path seguro(CatalogoDeArquivos.Entrada e) throws IOException {
-        if (!e.formato().matches("txt|md|json|xlsx")) throw new IOException("extensão incompatível com edição");
+        if (!e.formato().matches("txt|md|json|xlsx")) throw new FalhaEdicao("extensão incompatível com edição");
         Path arquivo = catalogo.caminhoDe(e);
         Path real = arquivo.toRealPath();
         if (!real.getParent().equals(arquivo.getParent().toRealPath())
                 || Files.isSymbolicLink(arquivo) || Files.isDirectory(arquivo, LinkOption.NOFOLLOW_LINKS)
                 || arquivo.getFileName().toString().matches("(?i)^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?$"))
-            throw new IOException("arquivo fora da pasta autorizada ou reservado");
+            throw new FalhaEdicao("arquivo fora da pasta autorizada ou reservado");
         if (arquivo.startsWith(dados) || dados.startsWith(arquivo.getParent()))
-            throw new IOException("pasta protegida não pode ser editada");
+            throw new FalhaEdicao("pasta protegida não pode ser editada");
         if (configuracao != null && (arquivo.equals(configuracao)
                 || arquivo.getParent().equals(configuracao.getParent())))
-            throw new IOException("pasta de configuração não pode ser editada");
+            throw new FalhaEdicao("pasta de configuração não pode ser editada");
         for (Path parte = arquivo.getParent(); parte != null; parte = parte.getParent()) {
             String nome = parte.getFileName() == null ? "" : parte.getFileName().toString().toLowerCase(Locale.ROOT);
             if (java.util.Set.of("memoria", "memória", "backups", "backup", "rotinas",
                     "credenciais", "credentials", "config").contains(nome))
-                throw new IOException("diretório protegido não pode ser editado");
+                throw new FalhaEdicao("diretório protegido não pode ser editado");
         }
         return arquivo;
     }
@@ -400,11 +400,14 @@ final class EditorDeArquivos {
     private byte[] ler(Path arquivo) throws IOException {
         byte[] bytes;
         try { bytes = CatalogoDeArquivos.bytesSemLink(arquivo); }
-        catch (IOException e) { throw new IOException("arquivo bloqueado ou indisponível", e); }
+        catch (java.nio.file.AccessDeniedException | java.nio.file.NoSuchFileException e) { throw e; }
+        catch (IOException e) {
+            throw new FalhaEdicao("FALHA_DE_IO", "falha de leitura; arquivo pode estar bloqueado ou indisponível", e);
+        }
         if (bytes.length == 0 || bytes.length > limites.maxBytesArquivo())
-            throw new IOException("arquivo fora do limite de edição");
+            throw new FalhaEdicao("arquivo fora do limite de edição");
         if (!arquivo.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".xlsx"))
-            for (byte b : bytes) if (b == 0) throw new IOException("arquivo binário recusado");
+            for (byte b : bytes) if (b == 0) throw new FalhaEdicao("arquivo binário recusado");
         return bytes;
     }
 
@@ -420,9 +423,9 @@ final class EditorDeArquivos {
             boolean crlf = texto.contains("\r\n");
             if (texto.replace("\r\n", "").contains("\r")
                     || crlf && texto.replace("\r\n", "").contains("\n"))
-                throw new IOException("quebras de linha misturadas ou desconhecidas");
+                throw new FalhaEdicao("quebras de linha misturadas ou desconhecidas");
             return new Texto(texto, bom, crlf);
-        } catch (CharacterCodingException e) { throw new IOException("codificação desconhecida; apenas UTF-8", e); }
+        } catch (CharacterCodingException e) { throw new FalhaEdicao("codificação desconhecida; apenas UTF-8", e); }
     }
     private static byte[] codificar(String texto, boolean bom) {
         byte[] conteudo = texto.getBytes(StandardCharsets.UTF_8);
@@ -436,7 +439,7 @@ final class EditorDeArquivos {
         for (int i = 0; i < texto.length(); i++) {
             char c = texto.charAt(i);
             if (Character.isISOControl(c) && c != '\t' && c != '\r' && c != '\n')
-                throw new IOException("arquivo binário ou com controles recusado");
+                throw new FalhaEdicao("arquivo binário ou com controles recusado");
         }
     }
     private static String chaveArquivo(Path arquivo) throws IOException {
@@ -448,10 +451,10 @@ final class EditorDeArquivos {
         try (FileChannel canal = FileChannel.open(arquivo, StandardOpenOption.READ,
                 StandardOpenOption.WRITE)) {
             try (var bloqueio = canal.tryLock()) {
-                if (bloqueio == null) throw new IOException("arquivo bloqueado por outro programa");
+                if (bloqueio == null) throw new FalhaEdicao("ARQUIVO_BLOQUEADO", "arquivo bloqueado por outro programa");
             }
         } catch (java.nio.channels.OverlappingFileLockException e) {
-            throw new IOException("arquivo bloqueado por outro programa", e);
+            throw new FalhaEdicao("ARQUIVO_BLOQUEADO", "arquivo bloqueado por outro programa", e);
         }
     }
     private static void sincronizar(Path arquivo) throws IOException {
@@ -476,7 +479,7 @@ final class EditorDeArquivos {
     }
     private static String normalizarQuebras(String texto, boolean crlf) throws IOException {
         if (texto.replace("\r\n", "").contains("\r"))
-            throw new IOException("quebra de linha não suportada");
+            throw new FalhaEdicao("quebra de linha não suportada");
         String lf = texto.replace("\r\n", "\n");
         return crlf ? lf.replace("\n", "\r\n") : lf;
     }
@@ -509,10 +512,10 @@ final class EditorDeArquivos {
     }
     private void backup(String id, ObjectNode r, byte[] anterior) throws IOException {
         if (anterior.length > limites.maxBytesBackup())
-            throw new IOException("backup excede o limite de retenção");
+            throw new FalhaEdicao("backup excede o limite de retenção");
         guardarBytes(id, "backup", anterior);
         if (!hash(Files.readAllBytes(caminho(id, "backup"))).equals(campo(r, "hashAnterior")))
-            throw new IOException("backup não validado");
+            throw new FalhaEdicao("backup não validado");
         try { expurgarBackups(id + ".backup"); }
         catch (IOException e) { Files.deleteIfExists(caminho(id, "backup")); throw e; }
     }
@@ -567,7 +570,7 @@ final class EditorDeArquivos {
                 }
             }
             if (total > limites.maxBytesBackup())
-                throw new IOException("limite de backups atingido; original preservado");
+                throw new FalhaEdicao("limite de backups atingido; original preservado");
         }
     }
     private static String idDoBackup(Path caminho) {
@@ -576,11 +579,11 @@ final class EditorDeArquivos {
     }
     private ObjectNode registro(String id) throws IOException {
         prepararDados();
-        if (!id.matches("[0-9a-f-]{36}")) throw new IOException("editId inválido");
+        if (!id.matches("[0-9a-f-]{36}")) throw new FalhaEdicao("editId inválido");
         Path arquivo = caminho(id, "json");
-        if (!Files.isRegularFile(arquivo, LinkOption.NOFOLLOW_LINKS)) throw new IOException("edição desconhecida");
+        if (!Files.isRegularFile(arquivo, LinkOption.NOFOLLOW_LINKS)) throw new FalhaEdicao("edição desconhecida");
         JsonNode lido = JSON.readTree(Files.readString(arquivo));
-        if (!(lido instanceof ObjectNode o)) throw new IOException("registro de edição corrompido");
+        if (!(lido instanceof ObjectNode o)) throw new FalhaEdicao("registro de edição corrompido");
         return o;
     }
     private void guardar(String id, ObjectNode r) throws IOException {
@@ -606,19 +609,19 @@ final class EditorDeArquivos {
     private void prepararDados() throws IOException {
         Files.createDirectories(dados);
         for (Path parte = dados; parte != null; parte = parte.getParent())
-            if (Files.isSymbolicLink(parte)) throw new IOException("backup em link recusado");
+            if (Files.isSymbolicLink(parte)) throw new FalhaEdicao("backup em link recusado");
         Path real = dados.toRealPath();
         if (!real.equals(dados.toRealPath(LinkOption.NOFOLLOW_LINKS))
                 || real.startsWith(catalogo.raizAutorizada()))
-            throw new IOException("backup fora da pasta protegida");
+            throw new FalhaEdicao("backup fora da pasta protegida");
     }
     private static String campo(JsonNode n, String nome) throws IOException {
         String valor = campoBruto(n, nome);
-        if (valor.isBlank()) throw new IOException("campo " + nome + " ausente");
+        if (valor.isBlank()) throw new FalhaEdicao("campo " + nome + " ausente");
         return valor;
     }
     private static String campoBruto(JsonNode n, String nome) throws IOException {
-        if (n == null || !n.path(nome).isTextual()) throw new IOException("campo " + nome + " inválido");
+        if (n == null || !n.path(nome).isTextual()) throw new FalhaEdicao("campo " + nome + " inválido");
         return n.path(nome).stringValue();
     }
     static String hash(byte[] bytes) throws IOException {

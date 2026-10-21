@@ -1,5 +1,21 @@
 # jarvis-agente-pc
 
+O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem comando, executa e
+devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,
+tirar print, dizer como o PC está, desligar, reiniciar, cancelar o desligamento, criar/ler/editar
+arquivos, rodar uma rotina cadastrada e executar as ações visuais do computer use.
+
+E ele **acorda sozinho**: bata **duas palmas** ou diga "Jarvis" para abrir a tela do
+Jarvis em tela cheia e ouvir a apresentação.
+
+**Nada escuta porta nesta máquina.** Toda conexão é de dentro para fora (long polling em
+`GET /api/pc/comandos`), como o próprio Jarvis faz com a API do Telegram. Sem porta aberta, sem
+domínio, sem webhook.
+
+Java 21, sem Spring, um jar só (shade). Dependências: Jackson 3 (o mesmo do Jarvis), commonmark
+para DOCX/PDF, Apache POI para XLSX, PDFBox para ler PDF, JNA para integração com o Windows e o
+whisper.cpp externo para o reconhecimento de voz offline.
+
 ## Criação de arquivos
 
 O comando `criar_arquivo` gera MD, TXT, DOCX, PDF, XLSX ou CSV somente em `pastaArquivos`.
@@ -25,21 +41,6 @@ Linhas CSV e células XLSX grandes podem ser retomadas com `inicioLinha` ou `ini
 fragmentos devolvidos são partes do JSON do item e avançam até completar a linha ou célula.
 PDF sem texto extraível requer OCR, ainda não implementado. Arquivo removido ou alterado desde o
 cadastro é recusado até nova avaliação. Google Sheets nativo fica fora desta versão.
-
-
-O braço do [Jarvis](../jarvis) neste PC Windows. Ele pergunta à VPS se tem comando, executa e
-devolve o resultado — abrir app, abrir página, abrir a HUD, bloquear a tela, mexer no volume,
-tirar print, dizer como o PC está, desligar, reiniciar e cancelar o desligamento.
-
-E ele **acorda sozinho**: bata **duas palmas** ou diga "Jarvis" para abrir a tela do
-Jarvis em tela cheia e ouvir a apresentação.
-
-**Nada escuta porta nesta máquina.** Toda conexão é de dentro para fora (long polling em
-`GET /api/pc/comandos`), como o próprio Jarvis faz com a API do Telegram. Sem porta aberta, sem
-domínio, sem webhook.
-
-Java 21, sem Spring, um jar só. Dependências: Jackson 3 (o mesmo do Jarvis), whisper.cpp para o
-reconhecimento de voz offline e JNA para integração com o Windows.
 
 ## Compilar
 
@@ -100,8 +101,9 @@ janela de console (`javaw`) e reiniciando sozinha se cair.
 
 Precisa ser no logon, e não um serviço do Windows: o agente depende da sessão interativa. O
 `Robot` da captura não vê o desktop de outra sessão, o `LockWorkStation` age na sessão de quem
-chama, e o Chrome em kiosk precisa de um desktop. Como serviço, três das dez ações não
-funcionariam — e a captura responderia *"não consigo ver a tela"*.
+chama, e o Chrome em kiosk precisa de um desktop. Como serviço, a captura, o bloqueio de tela, a
+abertura da HUD e o computer use inteiro não funcionariam — e a captura responderia *"não consigo
+ver a tela"*.
 
 A tarefa roda **sem elevação** (`-RunLevel Limited`): desligar, reiniciar e bloquear a própria
 máquina não pedem administrador.
@@ -155,13 +157,29 @@ acontecer — tempo de desistir com *"cancela"*.
 | `bloquear_tela` | `rundll32.exe user32.dll,LockWorkStation` |
 | `volume` | tecla de mídia por PowerShell/`SendKeys` (175 sobe, 174 abaixa, 173 alterna o mudo) |
 | `captura_tela` | `Robot` em todos os monitores, PNG reduzido para 1600 px de largura |
+| `status_pc` | CPU e memória pelo `OperatingSystemMXBean`, disco pelo `FileStore`, bateria por `Win32_Battery` |
+| `desligar` / `reiniciar` | `shutdown /s /t 60` e `shutdown /r /t 60` |
+| `cancelar_desligamento` | `shutdown /a` (código 1116, "nada agendado", volta como sucesso) |
+| `modo_repouso` | fecha a tela; o agente volta a escutar o gatilho |
+| `falso_positivo` | conta um alarme falso e devolve o total |
+| `criar_arquivo` | gera o arquivo em `pastaArquivos` e faz o upload (ver [Criação de arquivos](#criação-de-arquivos)) |
+| `listar_arquivos` / `ler_arquivo` | catálogo e leitura paginada (ver [Localizar e ler arquivos](#localizar-e-ler-arquivos)) |
+| `preparar_edicao` / `aplicar_edicao` | proposta e gravação da edição (ver [Edição](#edição-de-txt-markdown-json-e-xlsx)) |
+| `preparar_desfazer` / `aplicar_desfazer` | restauração do backup da edição |
+| `rodar_rotina` | executa uma rotina do `rotinas.properties` (ver [Rotinas](#rotinas-manuais-no-windows)) |
 | `computer_acao` | ação interna E2 de `tarefa_no_pc`, restrita ao monitor principal |
 
 ### Computer use supervisionado
 
-`computer.use.ativo=false` é o padrão no `config.properties`. Depois de atualizar a VPS e
-homologar com dados fictícios, ative aqui antes de ligar `COMPUTER_USE_ATIVO` na VPS. O agente
-continua sem porta aberta: busca cada ação pelo E2 e devolve a captura necessária ao provedor.
+**Já validado no PC real:** hotkey, bandeja, captura e escala, mudança de resolução, interferência
+por mouse/teclado, queda de rede, cancelamento remoto e uma tarefa completa até o resultado. Os
+builds automatizados não cobrem entrada nativa do Windows nem disponibilidade dos modelos na conta,
+então é essa conferência na máquina que vale como prova.
+
+`computer.use.ativo=false` continua sendo o padrão do `config.properties`, para quem clona o
+projeto não ganhar controle de mouse e teclado sem pedir. Ligar exige os dois lados: `true` aqui e
+`COMPUTER_USE_ATIVO=true` na VPS. O agente continua sem porta aberta: busca cada ação pelo E2 e
+devolve a captura necessária ao provedor.
 Uma sessão por vez usa o monitor principal; coordenadas fora da captura, texto acima de 1000
 caracteres, teclas não reconhecidas e esperas acima de dez segundos são recusados. Mudança na
 geometria ou entrada local entre ações encerra a tarefa. O agente não executa shell nem scripts
@@ -171,18 +189,12 @@ vindos do modelo.
 permanece até selecionar “Permitir nova tarefa” localmente ou reiniciar o agente. Se o atalho
 global do Windows não puder ser registrado, o executor recusa ações. A parada remota depende da
 rede e não desfaz uma ação já iniciada. As capturas de resultado não entregues são descartadas
-após cinco minutos; não há envio periódico ao Telegram. Homologue manualmente hotkey, bandeja,
-captura, escala, interferência e rede antes de usar em dados reais.
-| `status_pc` | CPU e memória pelo `OperatingSystemMXBean`, disco pelo `FileStore`, bateria por `Win32_Battery` |
-| `desligar` / `reiniciar` | `shutdown /s /t 60` e `shutdown /r /t 60` |
-| `cancelar_desligamento` | `shutdown /a` (código 1116, "nada agendado", volta como sucesso) |
-| `modo_repouso` | fecha a tela; o agente volta a escutar o gatilho |
-| `falso_positivo` | conta um alarme falso e devolve o total |
+após cinco minutos; não há envio periódico ao Telegram.
 
 ## O despertar
 
-Bata **duas palmas** ou diga *"Jarvis"* para abrir a tela em tela cheia e ouvir a
-apresentação. Os dois gatilhos dividem o mesmo microfone e valem ao mesmo tempo; qualquer um dos
+Bata **duas palmas** ou diga *"Jarvis"* — a palavra **sozinha**, sem frase em volta — para abrir a
+tela em tela cheia e ouvir a apresentação. Os dois gatilhos dividem o mesmo microfone e valem ao mesmo tempo; qualquer um dos
 dois abre a tela. O agente também continua aceitando os comandos existentes para abrir a HUD,
 colocá-la em repouso e verificar se a janela segue aberta.
 
@@ -344,7 +356,7 @@ O E2 transporta arquivos gerados por upload autenticado (até 8 MiB), capturas P
 decodificados) e respostas estruturadas das consultas de arquivos (até 32 KiB). O diário local
 guarda esses resultados até a VPS confirmar o recebimento; depois remove os payloads da cópia local.
 Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a resposta HTTP se perde.
-# Edição de TXT, Markdown, JSON e XLSX
+## Edição de TXT, Markdown, JSON e XLSX
 
 `preparar_edicao` recebe o ID de `listar_arquivos`/`ler_arquivo`, o SHA-256
 `versaoEsperada`, destino `original` ou `copia` e até dez operações. O agente só
@@ -371,7 +383,7 @@ recusados. Os demais campos são preservados semanticamente; a serialização po
 espaços e representação lexical. Não há inserção ou remoção JSON nesta fase.
 
 XLSX usa Apache POI para atualizar ou preencher células, acrescentar/inserir linhas,
-inserir colunas e criar abas. O leitor permite buscar valor exato, restringindo por aba,
+inserir colunas, criar abas e expandir filtro. O leitor permite buscar valor exato, restringindo por aba,
 cabeçalho ou tabela, e devolve todas as correspondências até 50. Busca ambígua não
 autoriza escolher a primeira ocorrência. `atualizar_por_item` recebe item e cabeçalho,
 resolve a célula no agente e recusa correspondências repetidas. A proposta confere
@@ -385,6 +397,54 @@ começa por `=`, `+`, `-` ou `@` é gravado como texto. Fórmulas novas passam p
 restrita do criador e o resultado é apenas marcado para recálculo ao abrir, sem avaliação
 nem atualização confiável do cache. Substituir fórmula por outro tipo requer autorização
 explícita. Mesclas e proteção impedem edição do alvo.
+
+O leitor retorna `ultimaLinhaFisica`, `proximaLinhaFisica`, `intervaloFiltro` (ou null)
+e `tabelas` com nome/intervalo, até 50, sinalizando `tabelasTruncadas` quando necessário.
+Os quatro limites explícitos de linha/coluna incluem células ausentes com `existe=false`,
+`tipo=vazio` e `valorAnterior=null`; uma célula BLANK existente tem `existe=true`.
+
+Contrato das operações (além de `tipo`):
+
+| Operação | Campos obrigatórios |
+| --- | --- |
+| `atualizar_celula`, `preencher_celula_vazia` | `aba`, `celula`, `tipoAnterior`, `valorAnterior`, `tipoNovo`, `valorNovo` |
+| `atualizar_por_item` | `itemValor`, `cabecalhoAlvo`, `tipoAnterior`, `valorAnterior`, `tipoNovo`, `valorNovo` |
+| `acrescentar_linha` | `aba`, `linhaEsperada` = próxima linha física |
+| `inserir_linha`, `inserir_coluna` | `aba` e `linha` ou `coluna`, começando em 1 |
+| `criar_aba` | `aba` |
+| `expandir_filtro` | `aba`, `intervaloAnterior`, `intervaloNovo`, sem nome da aba nas faixas |
+
+`atualizar_celula` exige célula existente; `preencher_celula_vazia` pode criar uma
+célula ausente com tipo anterior `vazio` e valor anterior JSON `null`.
+`acrescentar_linha` cria somente uma linha vazia no fim físico, incluindo notas e linhas
+formatadas no cálculo. Preencher essa linha requer operações adicionais.
+
+Para incluir dados em A4:H4 quando o filtro é A1:H3 e há notas da linha 5 em diante,
+proponha preenchimentos de A4:H4 e `expandir_filtro` de A1:H3 para A1:H4 juntos.
+A expansão mantém cabeçalho/colunas, estende somente o fim e atualiza o nome definido
+do filtro. Cada linha nova deve estar originalmente vazia e receber dados na proposta.
+Recusa sobreposição com notas/dados, mesclas, tabelas estruturadas na aba, critérios ou
+ordenação ativos, e mudanças estruturais na mesma aba. Não calcula critérios de filtro.
+
+Limitação observada na conferência visual: o XLSX grava o intervalo A1:H4 corretamente,
+mas o LibreOffice pode expandi-lo em memória ao abrir o menu quando há uma nota contígua
+na linha 5. A prévia avisa dessa situação; as notas permanecem nas posições originais.
+Não há inserção implícita de espaçador. Cabeçalho, larguras e três abas do arquivo de
+teste abriram sem reparo. Consulte a
+[ajuda do LibreOffice sobre expansão automática](https://help.libreoffice.org/latest/en-GB/text/scalc/guide/autofilter.html).
+
+Recusas conhecidas são `FalhaEdicao`, com código estável e mensagem controlada.
+`dados.codigoErro` distingue `CELULA_INEXISTENTE`, `POSICAO_DIVERGENTE`, conflitos,
+`RECURSO_INCOMPATIVEL`, `ACESSO_NEGADO`, `ARQUIVO_BLOQUEADO`, `ARQUIVO_INDISPONIVEL`,
+`FALHA_DE_IO` e `FALHA_INTERNA`. `RESULTADO_INCERTO` mantém o fluxo de reconciliação.
+O log e o resumo persistido no diário após envio incluem ID do comando, etapa,
+operação/índice (1 em diante; 0 quando não identificada), código e classes da exceção
+e causa. Não incluem conteúdo das células, credenciais ou mensagens de bibliotecas.
+Não repetir automaticamente parâmetros recusados ou uma gravação de resultado incerto.
+
+Regressões: `CorrecaoEdicaoXlsxTest`, `DiagnosticoEdicaoTest` e os testes anteriores
+de edição/leitura. A regressão de gravação e desfazer gera
+`target/validacao-edicao/planilha-editada.xlsx` para conferir aparência no LibreOffice.
 
 Ao acrescentar linha, o agente expande tabelas que terminam na linha anterior e séries
 de gráfico com intervalo direto da mesma aba. Inserção estrutural em tabela ou com

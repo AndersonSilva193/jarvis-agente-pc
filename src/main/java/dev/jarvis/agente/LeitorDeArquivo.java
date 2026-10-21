@@ -254,11 +254,14 @@ final class LeitorDeArquivo {
         try (var livro = new XSSFWorkbook(Files.newInputStream(arquivo, LinkOption.NOFOLLOW_LINKS))) {
             ArrayNode abas = saida.putArray("abas");
             for (int i = 0; i < livro.getNumberOfSheets() && i < 100; i++) abas.add(livro.getSheetName(i));
+            String nome = CatalogoDeArquivos.texto(pedido, "aba");
+            var selecionada = livro.getSheet(nome);
+            if (!nome.isEmpty() && selecionada == null) throw new IOException("aba não encontrada");
+            if (selecionada != null) descreverEstrutura(selecionada, saida);
             if (pedido.path("buscaValor").isTextual()) {
                 buscarXlsx(livro, pedido, saida);
                 return;
             }
-            String nome = CatalogoDeArquivos.texto(pedido, "aba");
             if (nome.isEmpty()) { saida.put("truncado", true); saida.put("continuacao", "escolha uma aba"); return; }
             Sheet folha = livro.getSheet(nome);
             if (folha == null) throw new IOException("aba não encontrada");
@@ -267,17 +270,26 @@ final class LeitorDeArquivo {
             int colunaInicial = CatalogoDeArquivos.numero(pedido, "colunaInicial", 1);
             int colunaFinal = CatalogoDeArquivos.numero(pedido, "colunaFinal", colunaInicial + 9);
             int inicioCelula = CatalogoDeArquivos.numero(pedido, "inicioCelula", 0);
+            boolean intervaloExplicito = pedido.has("linhaInicial") && pedido.has("linhaFinal")
+                    && pedido.has("colunaInicial") && pedido.has("colunaFinal");
             if (linhaInicial < 1 || colunaInicial < 1 || linhaFinal < linhaInicial || colunaFinal < colunaInicial
+                    || linhaFinal > 1_048_576 || colunaFinal > 16_384
                     || linhaFinal - linhaInicial >= 100 || colunaFinal - colunaInicial >= 30
                     || inicioCelula < 0)
                 throw new IOException("intervalo de células inválido");
             ArrayNode celulas = saida.putArray("celulas");
             for (int l = linhaInicial; l <= linhaFinal; l++) {
-                Row linha = folha.getRow(l - 1); if (linha == null) continue;
+                Row linha = folha.getRow(l - 1);
                 for (int c = colunaInicial; c <= colunaFinal; c++) {
-                    Cell celula = linha.getCell(c - 1); if (celula == null) continue;
+                    Cell celula = linha == null ? null : linha.getCell(c - 1);
+                    if (celula == null && !intervaloExplicito) continue;
                     ObjectNode item = celulas.addObject();
-                    item.put("endereco", celula.getAddress().formatAsString());
+                    item.put("endereco", new org.apache.poi.ss.util.CellReference(l - 1, c - 1).formatAsString());
+                    item.put("existe", celula != null);
+                    if (celula == null) {
+                        item.put("tipo", "vazio").put("tipoArquivo", "AUSENTE");
+                        item.putNull("valorAnterior"); item.putNull("valor");
+                    } else {
                     item.put("tipoArquivo", celula.getCellType().name());
                     EdicaoXlsx.descreverValorAnterior(celula, item);
                     switch (celula.getCellType()) {
@@ -301,6 +313,7 @@ final class LeitorDeArquivo {
                             }
                         }
                         default -> item.putNull("valor");
+                    }
                     }
                     String celulaJson = item.toString();
                     if (inicioCelula > 0 || !cabe(saida)) {
@@ -328,6 +341,22 @@ final class LeitorDeArquivo {
             }
             saida.put("truncado", linhaFinal <= folha.getLastRowNum());
             if (linhaFinal <= folha.getLastRowNum()) saida.put("continuarLinha", linhaFinal + 1);
+        }
+    }
+
+    private static void descreverEstrutura(org.apache.poi.xssf.usermodel.XSSFSheet aba, ObjectNode saida)
+            throws IOException {
+        int ultima = aba.getPhysicalNumberOfRows() == 0 ? 0 : aba.getLastRowNum() + 1;
+        saida.put("ultimaLinhaFisica", ultima).put("proximaLinhaFisica", ultima + 1);
+        if (aba.getCTWorksheet().isSetAutoFilter())
+            saida.put("intervaloFiltro", aba.getCTWorksheet().getAutoFilter().getRef());
+        else saida.putNull("intervaloFiltro");
+        ArrayNode tabelas = saida.putArray("tabelas");
+        for (var tabela : aba.getTables()) {
+            if (tabelas.size() >= 50) { saida.put("tabelasTruncadas", true); break; }
+            var item = tabelas.addObject().put("nome", tabela.getName());
+            if (tabela.getArea() != null) item.put("intervalo", tabela.getArea().formatAsString());
+            if (!cabe(saida)) throw new IOException("metadados da aba excedem o limite de leitura");
         }
     }
 

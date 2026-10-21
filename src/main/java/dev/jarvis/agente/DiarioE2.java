@@ -53,7 +53,15 @@ final class DiarioE2 {
     synchronized void confirmarEnvio(String id) throws IOException {
         Registro r = obter(id);
         if (r != null) guardar(new Registro(id, r.estado(), r.mensagem(), r.codigo(),
-                "", "", null, r.atualizado(), true));
+                "", "", diagnostico(r), r.atualizado(), true));
+    }
+    private JsonNode diagnostico(Registro r) {
+        if (r.dados() == null || !r.dados().path("codigoErro").isTextual()) return null;
+        ObjectNode resumo = json.createObjectNode();
+        for (String campo : List.of("codigoErro", "etapa", "operacao", "indiceOperacao",
+                "classeExcecao", "classeCausa"))
+            if (r.dados().has(campo)) resumo.set(campo, r.dados().path(campo));
+        return resumo;
     }
     synchronized List<Registro> pendentes() throws IOException {
         List<Registro> registros = new ArrayList<>();

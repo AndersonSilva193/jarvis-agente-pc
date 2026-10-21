@@ -8,7 +8,9 @@ urlApi=https://jarvis.barberagendaonline.store
 # O MESMO valor do PC_TOKEN que está no .env da VPS. Gere um com: openssl rand -hex 32
 pcToken=
 
-# Computer use no monitor principal. Ligue somente depois dos testes supervisionados.
+# Computer use no monitor principal. Recurso validado neste PC; vem desligado por padrao para
+# ninguem ganhar controle de mouse e teclado sem pedir. Precisa de true aqui E de
+# COMPUTER_USE_ATIVO=true na VPS.
 # Parada local: Ctrl+Alt+Shift+F12 ou menu do icone Jarvis na bandeja.
 computer.use.ativo=false
 
