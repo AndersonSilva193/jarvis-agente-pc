@@ -28,6 +28,8 @@ import java.util.logging.Logger;
  * @param vozConfiancaMinima  a probabilidade média mínima dos tokens de "Jarvis" no Whisper
  * @param hudModo         {@code app} (janela sem barra) ou {@code kiosk} (tela cheia travada)
  * @param manterPcAcordado  em repouso, impedir a suspensão para as palmas continuarem valendo
+ * @param lixeiraDiasRetencao dias que um arquivo fica em {@code <pastaArquivos>/.lixeira} antes de
+ *                        ser apagado de vez. O expurgo roda na partida e uma vez por dia
  */
 public record Configuracao(
         URI urlApi,
@@ -45,13 +47,26 @@ public record Configuracao(
         Path vozModelo,
         Path pastaArquivos,
         boolean computerUseAtivo,
-        LimitesEdicao limitesEdicao) {
+        LimitesEdicao limitesEdicao,
+        int lixeiraDiasRetencao) {
 
     public record LimitesEdicao(int maxBytesArquivo, int maxOperacoes, int maxBytesResultado,
             int maxBytesPrevia, int maxVersoesBackup, long maxBytesBackup) {
         static LimitesEdicao padrao() {
             return new LimitesEdicao(1024 * 1024, 10, 1024 * 1024, 12_000, 10, 100L * 1024 * 1024);
         }
+    }
+
+    /** Construtor mantido para quem monta a configuração sem falar da lixeira. */
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo, LimitesEdicao limitesEdicao) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo, limitesEdicao,
+                DIAS_RETENCAO_PADRAO);
     }
 
     public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
@@ -80,6 +95,8 @@ public record Configuracao(
     private static final String NOME_DE_APP = "[a-z0-9][a-z0-9_.-]{0,31}";
 
 
+    /** Um mês de arrependimento é o bastante, e não enche o disco do usuário. */
+    public static final int DIAS_RETENCAO_PADRAO = 30;
     public static final double SENSIBILIDADE_PADRAO = 18;
     public static final double CONFIANCA_PADRAO = 0.6;
     public static final String MODO_APP = "app";
@@ -135,7 +152,8 @@ public record Configuracao(
                         inteiro(propriedades, "edicao.maxBytesPrevia", 12_000, 100, 20_000),
                         inteiro(propriedades, "edicao.maxVersoesBackup", 10, 1, 100),
                         inteiro(propriedades, "edicao.maxBytesBackup", 100 * 1024 * 1024,
-                                1024 * 1024, 1024 * 1024 * 1024)));
+                                1024 * 1024, 1024 * 1024 * 1024)),
+                inteiro(propriedades, "lixeira.diasRetencao", DIAS_RETENCAO_PADRAO, 1, 3650));
     }
 
     /**

@@ -43,11 +43,24 @@ final class ExecutorDeAcoes {
     private final JanelaDaHud janela;
     /** Nulo quando o despertar está desligado: aí as ações dele respondem que não há o que fazer. */
     private final Despertador despertador;
+    /** Só para a lixeira perguntar se há edição em voo no arquivo; nulo é aceitável. */
+    private final EditorDeArquivos editor;
 
     ExecutorDeAcoes(Configuracao config, JanelaDaHud janela, Despertador despertador) {
+        this(config, janela, despertador, null);
+    }
+
+    ExecutorDeAcoes(Configuracao config, JanelaDaHud janela, Despertador despertador,
+            EditorDeArquivos editor) {
         this.config = config;
         this.janela = janela;
         this.despertador = despertador;
+        this.editor = editor;
+    }
+
+    /** Uma instância por comando, como o catálogo e o leitor já fazem. */
+    private LixeiraDeArquivos lixeira() {
+        return new LixeiraDeArquivos(config.pastaArquivos(), config.lixeiraDiasRetencao(), editor);
     }
 
     Resultado executar(ComandoRecebido comando) throws InterruptedException {
@@ -65,6 +78,12 @@ final class ExecutorDeAcoes {
                         new CatalogoDeArquivos(config.pastaArquivos()).listar(comando.dados()));
                 case "ler_arquivo" -> Resultado.comDados(comando,
                         new LeitorDeArquivo(config.pastaArquivos()).ler(comando.dados()));
+                case "mover_para_lixeira" -> Resultado.comDados(comando,
+                        lixeira().mover(comando.dados()), "arquivo movido para a lixeira");
+                case "restaurar_da_lixeira" -> Resultado.comDados(comando,
+                        lixeira().restaurar(comando.dados()), "arquivo restaurado da lixeira");
+                case "listar_lixeira" -> Resultado.comDados(comando,
+                        lixeira().listar(comando.dados()));
                 case "status_pc" -> Resultado.feito(comando, StatusDoPc.medir());
                 case "desligar" -> agendarShutdown(comando, "/s", "desligar");
                 case "reiniciar" -> agendarShutdown(comando, "/r", "reiniciar");
@@ -76,6 +95,13 @@ final class ExecutorDeAcoes {
         } catch (InterruptedException e) {
             throw e;
         } catch (Exception e) {
+            // A lixeira traz a mensagem pronta, escrita aqui dentro: nada a sanitizar, e nenhuma
+            // lista de mensagens permitidas para manter em sincronia. A whitelist abaixo é de
+            // consulta, e o "default" dela engoliria a recusa de uma ação que mexe em arquivo.
+            if (e instanceof FalhaLixeira recusa) {
+                log.warning("ação '" + comando.acao() + "' recusada: " + recusa.codigo());
+                return Resultado.falhou(comando, recusa.getMessage());
+            }
             if (comando.acao().equals("ler_arquivo") || comando.acao().equals("listar_arquivos")) {
                 log.warning("consulta '" + comando.acao() + "' falhou: " + e.getClass().getSimpleName());
                 String motivo = e.getMessage();

@@ -36,4 +36,10 @@ record Resultado(String comandoId, boolean ok, String mensagem, String imagemBas
     static Resultado comDados(ComandoRecebido comando, tools.jackson.databind.JsonNode dados) {
         return new Resultado(comando.id(), true, "consulta concluída", null, null, dados);
     }
+
+    /** Para as ações que mudam algo e ainda devolvem dados: "consulta concluída" soaria errado. */
+    static Resultado comDados(ComandoRecebido comando, tools.jackson.databind.JsonNode dados,
+            String mensagem) {
+        return new Resultado(comando.id(), true, mensagem, null, null, dados);
+    }
 }

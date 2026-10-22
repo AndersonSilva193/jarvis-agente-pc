@@ -303,6 +303,29 @@ final class EditorDeArquivos {
         } finally { Files.deleteIfExists(temporario); }
     }
 
+    /**
+     * Diz se há escrita em voo neste arquivo — proposta já em {@code gravando} ou {@code desfazendo}.
+     *
+     * <p>Serve à lixeira. São exatamente os estados que {@link #recuperarPendentes(DiarioE2)} vai
+     * tentar concluir na próxima partida: mover o arquivo debaixo deles transformaria uma escrita
+     * ainda recuperável num "resultado incerto" permanente. Proposta só preparada não aparece
+     * aqui de propósito — ela falha sozinha e expira em dois minutos.
+     */
+    synchronized boolean temEdicaoEmVoo(String idArquivo) throws IOException {
+        if (!Files.isDirectory(dados)) return false;
+        try (var registros = Files.list(dados)) {
+            for (Path caminho : registros
+                    .filter(p -> p.getFileName().toString().endsWith(".json")).toList()) {
+                try {
+                    ObjectNode r = registro(caminho.getFileName().toString().replace(".json", ""));
+                    if (java.util.Set.of("gravando", "desfazendo").contains(campo(r, "estado"))
+                            && campo(r, "id").equals(idArquivo)) return true;
+                } catch (IOException ignorada) { /* registro torto não bloqueia a lixeira */ }
+            }
+        }
+        return false;
+    }
+
     synchronized void recuperarPendentes(DiarioE2 diario) throws IOException {
         if (!Files.isDirectory(dados)) return;
         try (var registros = Files.list(dados)) {
@@ -390,7 +413,7 @@ final class EditorDeArquivos {
         for (Path parte = arquivo.getParent(); parte != null; parte = parte.getParent()) {
             String nome = parte.getFileName() == null ? "" : parte.getFileName().toString().toLowerCase(Locale.ROOT);
             if (java.util.Set.of("memoria", "memória", "backups", "backup", "rotinas",
-                    "credenciais", "credentials", "config").contains(nome))
+                    "credenciais", "credentials", "config", "lixeira", ".lixeira").contains(nome))
                 throw new FalhaEdicao("diretório protegido não pode ser editado");
         }
         return arquivo;

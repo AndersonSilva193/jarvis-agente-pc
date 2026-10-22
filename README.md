@@ -32,6 +32,8 @@ e retorna IDs estáveis, filtros de nome/formato, paginação e estado. O catál
 `.jarvis-catalogo.properties` sobrevive a reinícios. Links, diretórios, arquivos acima de 8 MiB e
 formatos inválidos não são importados. A criação também registra o arquivo no catálogo, sem mudar
 o upload que entrega o anexo ao Telegram e à HUD.
+A pasta `.lixeira` e os backups de edição em `%LOCALAPPDATA%` ficam fora desta listagem: o que foi
+para a lixeira sai do catálogo e só aparece em `listar_lixeira`.
 
 `ler_arquivo` usa o ID, nunca um caminho enviado pela VPS. Lê TXT e MD como UTF-8, DOCX com
 parágrafos e tabelas, PDF por página, XLSX com endereço/tipo/fórmula/valor em cache e CSV com
@@ -166,6 +168,9 @@ acontecer — tempo de desistir com *"cancela"*.
 | `listar_arquivos` / `ler_arquivo` | catálogo e leitura paginada (ver [Localizar e ler arquivos](#localizar-e-ler-arquivos)) |
 | `preparar_edicao` / `aplicar_edicao` | proposta e gravação da edição (ver [Edição](#edição-de-txt-markdown-json-e-xlsx)) |
 | `preparar_desfazer` / `aplicar_desfazer` | restauração do backup da edição |
+| `mover_para_lixeira` | guarda o arquivo em `.lixeira/AAAA-MM-DD/` com registro ao lado (ver [Lixeira](#lixeira-reversível)) |
+| `restaurar_da_lixeira` | devolve o arquivo ao lugar, com sufixo se o nome estiver ocupado |
+| `listar_lixeira` | o que está na lixeira: nome, data, ID e quando expira |
 | `rodar_rotina` | executa uma rotina do `rotinas.properties` (ver [Rotinas](#rotinas-manuais-no-windows)) |
 | `computer_acao` | ação interna E2 de `tarefa_no_pc`, restrita ao monitor principal |
 
@@ -356,6 +361,46 @@ O E2 transporta arquivos gerados por upload autenticado (até 8 MiB), capturas P
 decodificados) e respostas estruturadas das consultas de arquivos (até 32 KiB). O diário local
 guarda esses resultados até a VPS confirmar o recebimento; depois remove os payloads da cópia local.
 Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a resposta HTTP se perde.
+## Lixeira reversível
+
+Apagar arquivo da `pastaArquivos` é reversível. `mover_para_lixeira` recebe **só o ID catalogado**,
+nunca um caminho, confere que o arquivo está mesmo dentro da pasta autorizada e o guarda em
+`<pastaArquivos>/.lixeira/AAAA-MM-DD/` como dois arquivos:
+
+```
+3f2a...c91.json                 o registro: id, nome original, formato, hash e data
+3f2a...c91-relatorio.txt.dados  os bytes originais
+```
+
+O registro leva o nome do UUID, e não o do arquivo, porque `json` é formato catalogável:
+`relatorio.txt` e `relatorio.txt.json` na mesma pasta fariam o registro de um ser o conteúdo do
+outro. Com o nome em forma de UUID, arquivo de usuário não pode ser confundido com registro — por
+forma, não por convenção. A extensão `.dados` fica fora dos formatos suportados, então o conteúdo
+retido nunca volta ao catálogo por acidente. O registro é **dado**, nunca um caminho a resolver: o
+nome guardado por nós passa pelas mesmas regras de nome do catálogo na hora de restaurar, e o
+`.dados` do item é achado pelo prefixo do ID.
+
+O movimento grava o registro **antes** de mexer no arquivo. Na ordem contrária, uma queda no meio
+deixaria um arquivo órfão invisível nas duas listagens — perda silenciosa, exatamente o que uma
+lixeira existe para evitar. Na partida, o agente reconcilia o que ficou pela metade: movimento sem
+arquivo tem o registro descartado (o original continua no lugar), arquivo já movido tem o registro
+promovido, e restauração interrompida volta atrás. O move é sempre atômico; disco que não oferece
+isso recusa a ação com o arquivo intacto, porque um copiar-e-apagar pela metade é a perda que a
+lixeira deveria impedir. Arquivo aberto em outro programa — o Excel numa planilha, por exemplo —
+também recusa, pedindo para fechar. Edição em voo no mesmo arquivo bloqueia o movimento: são os
+estados que a recuperação pós-queda vai tentar concluir.
+
+`restaurar_da_lixeira` recebe o ID do registro, confere o hash dos bytes guardados e devolve o
+arquivo ao nome original. Se já existir arquivo com aquele nome, restaura como `nome-1.ext` e avisa
+qual nome usou — nada é sobrescrito. **A restauração devolve um ID novo**, porque a entrada antiga
+saiu do catálogo no movimento; propostas de edição e leituras registradas com o ID antigo morrem
+junto.
+
+`lixeira.diasRetencao` (padrão 30) diz quantos dias o item fica. Passado o prazo, ele é apagado de
+vez: o expurgo roda na partida e uma vez por dia, decidindo pelo nome da pasta datada. Pasta com
+nome que não é data, ou com data no futuro, fica onde está, com aviso no log — nesta pasta o
+usuário também mexe, e apagar o desconhecido seria o jeito de um bug daqui virar um apagão lá.
+
 ## Edição de TXT, Markdown, JSON e XLSX
 
 `preparar_edicao` recebe o ID de `listar_arquivos`/`ler_arquivo`, o SHA-256

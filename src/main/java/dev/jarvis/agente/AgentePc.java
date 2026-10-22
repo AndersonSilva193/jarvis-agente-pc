@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.FileHandler;
 import java.util.logging.Level;
@@ -34,7 +35,7 @@ public final class AgentePc {
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento", "modo_repouso",
             "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina",
             "computer_acao", "preparar_edicao", "aplicar_edicao", "preparar_desfazer",
-            "aplicar_desfazer");
+            "aplicar_desfazer", "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira");
 
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
@@ -92,6 +93,16 @@ public final class AgentePc {
         EditorDeArquivos editor = new EditorDeArquivos(config.pastaArquivos(), pastaDeDados(),
                 arquivo, config.limitesEdicao());
         editor.recuperarPendentes(diario);
+        LixeiraDeArquivos lixeira = new LixeiraDeArquivos(config.pastaArquivos(),
+                config.lixeiraDiasRetencao(), editor);
+        // Na partida: fecha movimento ou restauração interrompidos e apaga o que venceu enquanto
+        // o PC estava desligado. Uma .lixeira quebrada não pode impedir o agente de subir.
+        try {
+            lixeira.reconciliar();
+            lixeira.expurgar();
+        } catch (IOException e) {
+            log.warning("lixeira indisponível na partida: " + e.getMessage());
+        }
         if (config.computerUseAtivo()) ParadaLocalComputer.iniciar();
         ExecutorComputer computer = new ExecutorComputer();
         JanelaDaHud janela = new JanelaDaHud(config);
@@ -108,12 +119,12 @@ public final class AgentePc {
             energia.close();
         }, "encerrando"));
 
-        rodar(cliente, new ExecutorDeAcoes(config, janela, despertador), catalogo, diario,
+        rodar(cliente, new ExecutorDeAcoes(config, janela, despertador, editor), catalogo, diario,
                 computer, config.computerUseAtivo(),
                 new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
                         System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
                         System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
-                        .filter(java.util.Objects::nonNull).toList()), editor);
+                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira);
     }
 
     /**
@@ -166,9 +177,10 @@ public final class AgentePc {
     private static void rodar(ClienteJarvis cliente, ExecutorDeAcoes executor,
             CatalogoRotinas catalogo, DiarioE2 diario, ExecutorComputer computer,
             boolean computerAtivo,
-            ExecutorDeRotinas rotinas, EditorDeArquivos editor)
+            ExecutorDeRotinas rotinas, EditorDeArquivos editor, LixeiraDeArquivos lixeira)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
+        LocalDate ultimoExpurgo = null;
         while (true) {
             try {
                 cliente.anunciarRotinas(catalogo);
@@ -180,6 +192,19 @@ public final class AgentePc {
                     entregar(cliente, diario, registro);
                 }
                 diario.removerAntigos();
+                // O "uma vez por dia" do expurgo, sem thread nem timer, no mesmo lugar da
+                // manutenção do diário. O try é obrigatório: o catch do laço trata tudo como
+                // falha de rede e entra em recuo, então uma pasta quebrada emudeceria o agente.
+                LocalDate hoje = LocalDate.now();
+                if (!hoje.equals(ultimoExpurgo)) {
+                    try {
+                        lixeira.expurgar();
+                    } catch (IOException e) {
+                        log.warning("expurgo da lixeira falhou: " + e.getMessage());
+                    }
+                    // Marcado mesmo em falha, senão repete a cada volta e inunda o log.
+                    ultimoExpurgo = hoje;
+                }
                 ClienteJarvis.EntregaE2 entrega = cliente.buscarComandoE2();
                 if (entrega != null) {
                     ComandoRecebido comando = entrega.comando();

@@ -27,6 +27,16 @@ edicao.maxBytesPrevia=12000
 edicao.maxVersoesBackup=10
 edicao.maxBytesBackup=104857600
 
+# ---- Lixeira ----
+# Apagar arquivo da pastaArquivos e reversivel: a acao mover_para_lixeira guarda o arquivo em
+# <pastaArquivos>/.lixeira/AAAA-MM-DD/ com um registro ao lado, listar_lixeira mostra o que esta
+# la e restaurar_da_lixeira devolve o arquivo ao lugar -- com sufixo, se o nome ja estiver
+# ocupado, e com um ID NOVO de catalogo (o antigo morre junto com a entrada).
+# Passados estes dias, o item e apagado de vez: o expurgo roda na partida e uma vez por dia.
+# A .lixeira fica fora do listar_arquivos comum, e nada que o agente nao reconheca dentro dela
+# e apagado. Fora do intervalo 1..3650 o agente nao sobe.
+lixeira.diasRetencao=30
+
 # A tela do Jarvis: é ela que a ação abrir_hud abre e que a palavra "Jarvis" acende.
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app

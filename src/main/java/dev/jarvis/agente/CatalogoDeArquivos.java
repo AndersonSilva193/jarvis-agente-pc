@@ -30,7 +30,7 @@ import tools.jackson.databind.node.ObjectNode;
 /** Catálogo persistente somente dos arquivos diretos da pasta configurada. */
 final class CatalogoDeArquivos {
     static final long LIMITE_ARQUIVO = 8L * 1024 * 1024;
-    private static final Set<String> FORMATOS = Set.of("txt", "md", "json", "docx", "pdf", "xlsx", "csv");
+    static final Set<String> FORMATOS = Set.of("txt", "md", "json", "docx", "pdf", "xlsx", "csv");
     private static final String ARQUIVO_CATALOGO = ".jarvis-catalogo.properties";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private final Path pasta;
@@ -87,7 +87,7 @@ final class CatalogoDeArquivos {
         return destino;
     }
 
-    private static String formato(String nome) {
+    static String formato(String nome) {
         int ponto = nome.lastIndexOf('.');
         return ponto < 0 ? "" : nome.substring(ponto + 1).toLowerCase(Locale.ROOT);
     }
@@ -204,6 +204,21 @@ final class CatalogoDeArquivos {
         if (id == null || !id.matches("[0-9a-fA-F-]{36}")) throw new IOException("identificador inválido");
         return carregar().stream().filter(e -> e.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IOException("arquivo não encontrado no catálogo"));
+    }
+
+    /**
+     * Tira a entrada do catálogo e diz se havia o que tirar.
+     *
+     * <p>É o que a lixeira usa depois de mover o arquivo. Sem isto a entrada sobreviveria e o
+     * {@code listar_arquivos} seguiria mostrando o item, com estado "removido" — um arquivo que o
+     * usuário mandou para a lixeira não deve aparecer mais na listagem comum.
+     */
+    synchronized boolean esquecer(String id) throws IOException {
+        if (id == null || !id.matches("[0-9a-fA-F-]{36}")) throw new IOException("identificador inválido");
+        List<Entrada> entradas = carregar();
+        if (!entradas.removeIf(e -> e.id().equals(id))) return false;
+        salvar(entradas);
+        return true;
     }
 
     synchronized void atualizar(String id, String hashAnterior) throws IOException {
