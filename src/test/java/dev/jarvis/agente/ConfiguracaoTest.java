@@ -116,6 +116,56 @@ class ConfiguracaoTest {
     }
 
     @Test
+    @DisplayName("IA local: desligada por padrão, com os valores combinados")
+    void iaPadroes() throws Exception {
+        Configuracao.ConfigIa ia = ler("").ia();
+        assertFalse(ia.ativo());
+        assertEquals("http://127.0.0.1:11434", ia.url().toString());
+        assertEquals("qwen3.5:9b", ia.modelo());
+        assertEquals(16384, ia.contexto());
+        assertEquals("20m", ia.keepAlive());
+        assertEquals(90, ia.timeoutSegundos());
+        assertEquals(256 * 1024, ia.maxBytes());
+    }
+
+    @Test
+    @DisplayName("ollama.url só local: o resto desliga a IA sem derrubar o agente")
+    void iaUrlSoLocal() throws Exception {
+        for (String url : new String[] {"http://192.168.0.10:11434", "http://localhost.evil.com:11434",
+                "http://127.0.0.1.nip.io:11434", "http://u@127.0.0.1:11434", "https://evil.com",
+                "http://[::1]:11434", "http://127.0.0.1:11434/api?x=1", "file:///C:/ollama", "ftp://127.0.0.1"}) {
+            Configuracao config = ler("ollama.ativo=true\nollama.url=" + url + "\n");
+            assertFalse(config.ia().ativo(), url);
+            assertEquals("http://127.0.0.1:11434", config.ia().url().toString(), url);
+        }
+        Configuracao.ConfigIa local = ler("ollama.ativo=true\nollama.url=http://LOCALHOST:11500/\n").ia();
+        assertTrue(local.ativo());
+        assertEquals("http://127.0.0.1:11500", local.url().toString(), "localhost vira 127.0.0.1");
+    }
+
+    @Test void iaValoresERecusas() throws Exception {
+        Configuracao.ConfigIa ia = ler("""
+                ollama.ativo=true
+                ollama.modelo=llama3.1:8b
+                ollama.contexto=8192
+                ollama.keepAlive=-1
+                ollama.timeoutSegundos=30
+                inferencia.maxKib=512
+                """).ia();
+        assertTrue(ia.ativo());
+        assertEquals("llama3.1:8b", ia.modelo());
+        assertEquals(8192, ia.contexto());
+        assertEquals("-1", ia.keepAlive());
+        assertEquals(30, ia.timeoutSegundos());
+        assertEquals(512 * 1024, ia.maxBytes());
+
+        assertEquals("qwen3.5:9b", ler("ollama.modelo=x;rm -rf\n").ia().modelo());
+        assertEquals("20m", ler("ollama.keepAlive=para sempre\n").ia().keepAlive());
+        assertThrows(IOException.class, () -> ler("inferencia.maxKib=0\n"));
+        assertThrows(IOException.class, () -> ler("ollama.contexto=999999999\n"));
+    }
+
+    @Test
     @DisplayName("o que é obrigatório continua obrigatório, e a URL continua só https")
     void obrigatoriosEHttps() throws Exception {
         Path arquivo = pasta.resolve("config.properties");

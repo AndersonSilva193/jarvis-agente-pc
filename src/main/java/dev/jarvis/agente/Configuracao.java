@@ -30,6 +30,7 @@ import java.util.logging.Logger;
  * @param manterPcAcordado  em repouso, impedir a suspensão para as palmas continuarem valendo
  * @param lixeiraDiasRetencao dias que um arquivo fica em {@code <pastaArquivos>/.lixeira} antes de
  *                        ser apagado de vez. O expurgo roda na partida e uma vez por dia
+ * @param ia              o Ollama deste PC, que a ação {@code inferir} usa
  */
 public record Configuracao(
         URI urlApi,
@@ -48,7 +49,40 @@ public record Configuracao(
         Path pastaArquivos,
         boolean computerUseAtivo,
         LimitesEdicao limitesEdicao,
-        int lixeiraDiasRetencao) {
+        int lixeiraDiasRetencao,
+        ConfigIa ia) {
+
+    /**
+     * O Ollama local. Modelo, contexto e keep_alive são decididos aqui, nunca pela VPS.
+     *
+     * @param url só {@code http://127.0.0.1}; {@code localhost} já chega reescrito
+     */
+    public record ConfigIa(boolean ativo, URI url, String modelo, int contexto, String keepAlive,
+            int timeoutSegundos, int maxKib) {
+        public static final URI URL_PADRAO = URI.create("http://127.0.0.1:11434");
+        public static final String MODELO_PADRAO = "qwen3.5:9b";
+
+        static ConfigIa padrao() {
+            return new ConfigIa(false, URL_PADRAO, MODELO_PADRAO, 16384, "20m", 90, 256);
+        }
+
+        /** O teto do pedido e do resultado da inferência, em bytes. */
+        public int maxBytes() {
+            return maxKib * 1024;
+        }
+    }
+
+    /** Construtor mantido para quem monta a configuração sem falar da IA local. */
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo, LimitesEdicao limitesEdicao, int lixeiraDiasRetencao) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo, limitesEdicao,
+                lixeiraDiasRetencao, ConfigIa.padrao());
+    }
 
     public record LimitesEdicao(int maxBytesArquivo, int maxOperacoes, int maxBytesResultado,
             int maxBytesPrevia, int maxVersoesBackup, long maxBytesBackup) {
@@ -153,7 +187,61 @@ public record Configuracao(
                         inteiro(propriedades, "edicao.maxVersoesBackup", 10, 1, 100),
                         inteiro(propriedades, "edicao.maxBytesBackup", 100 * 1024 * 1024,
                                 1024 * 1024, 1024 * 1024 * 1024)),
-                inteiro(propriedades, "lixeira.diasRetencao", DIAS_RETENCAO_PADRAO, 1, 3650));
+                inteiro(propriedades, "lixeira.diasRetencao", DIAS_RETENCAO_PADRAO, 1, 3650),
+                ia(propriedades));
+    }
+
+    private static ConfigIa ia(Properties propriedades) throws IOException {
+        boolean ativo = booleano(propriedades, "ollama.ativo", false);
+        String valorUrl = texto(propriedades, "ollama.url");
+        URI url = valorUrl.isEmpty() ? ConfigIa.URL_PADRAO : urlLocal(valorUrl);
+        if (url == null) {
+            // Desliga a IA em vez de derrubar o agente; e a URL recusada nunca é usada.
+            if (ativo) log.warning("ollama.url '" + valorUrl + "' recusada: só http://127.0.0.1 "
+                    + "ou http://localhost; IA local desligada");
+            ativo = false;
+            url = ConfigIa.URL_PADRAO;
+        }
+        String modelo = texto(propriedades, "ollama.modelo");
+        if (modelo.isEmpty()) modelo = ConfigIa.MODELO_PADRAO;
+        else if (!modelo.matches("[A-Za-z0-9._:/-]{1,128}")) {
+            log.warning("ollama.modelo inválido; usando " + ConfigIa.MODELO_PADRAO);
+            modelo = ConfigIa.MODELO_PADRAO;
+        }
+        String keepAlive = texto(propriedades, "ollama.keepAlive");
+        if (keepAlive.isEmpty()) keepAlive = "20m";
+        else if (!keepAlive.matches("-1|0|\\d{1,5}[smh]?")) {
+            log.warning("ollama.keepAlive '" + keepAlive + "' inválido; usando 20m");
+            keepAlive = "20m";
+        }
+        return new ConfigIa(ativo, url, modelo,
+                inteiro(propriedades, "ollama.contexto", 16384, 2048, 262144),
+                keepAlive,
+                inteiro(propriedades, "ollama.timeoutSegundos", 90, 1, 600),
+                inteiro(propriedades, "inferencia.maxKib", 256, 1, 8192));
+    }
+
+    /**
+     * O Ollama tem de estar nesta máquina: o agente manda para lá o que a VPS escreveu e devolve o
+     * que vier, então outra URL viraria um proxy da VPS para a rede local. Nulo = recusar.
+     *
+     * <p>O {@code localhost} vira {@code 127.0.0.1}: sem passar pelo arquivo hosts e sem cair no
+     * {@code ::1}, onde o Ollama não escuta por padrão.
+     */
+    static URI urlLocal(String valor) {
+        try {
+            URI uri = URI.create(valor.endsWith("/") ? valor.substring(0, valor.length() - 1) : valor);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            boolean boa = "http".equalsIgnoreCase(uri.getScheme())
+                    && (host.equals("127.0.0.1") || host.equals("localhost"))
+                    && uri.getRawUserInfo() == null && uri.getRawQuery() == null
+                    && uri.getRawFragment() == null
+                    && (uri.getRawPath() == null || uri.getRawPath().isEmpty());
+            if (!boa) return null;
+            return URI.create("http://127.0.0.1" + (uri.getPort() == -1 ? "" : ":" + uri.getPort()));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     /**

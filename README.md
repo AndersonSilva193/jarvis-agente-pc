@@ -173,6 +173,7 @@ acontecer — tempo de desistir com *"cancela"*.
 | `listar_lixeira` | o que está na lixeira: nome, data, ID e quando expira |
 | `rodar_rotina` | executa uma rotina do `rotinas.properties` (ver [Rotinas](#rotinas-manuais-no-windows)) |
 | `computer_acao` | ação interna E2 de `tarefa_no_pc`, restrita ao monitor principal |
+| `inferir` | chama o Ollama deste PC e devolve a resposta (ver [IA local](#ia-local-ollama)) |
 
 ### Computer use supervisionado
 
@@ -195,6 +196,86 @@ permanece até selecionar “Permitir nova tarefa” localmente ou reiniciar o a
 global do Windows não puder ser registrado, o executor recusa ações. A parada remota depende da
 rede e não desfaz uma ação já iniciada. As capturas de resultado não entregues são descartadas
 após cinco minutos; não há envio periódico ao Telegram.
+
+## IA local (Ollama)
+
+A VPS pode usar o Ollama deste PC como modelo: manda a ação `inferir`, o agente chama
+`/api/chat` aqui mesmo e devolve a resposta no resultado. Continua sem porta aberta — o pedido
+chega pelo long poll e a resposta volta pelo POST de resultado.
+
+Vem desligado. Para ligar, com o Ollama instalado e o modelo baixado (`ollama pull qwen3.5:9b`):
+
+| chave | padrão | |
+|---|---|---|
+| `ollama.ativo` | `false` | |
+| `ollama.url` | `http://127.0.0.1:11434` | só `127.0.0.1` ou `localhost`, em http; outro endereço desliga a IA com aviso no log |
+| `ollama.modelo` | `qwen3.5:9b` | |
+| `ollama.contexto` | `16384` | vira o `options.num_ctx` |
+| `ollama.keepAlive` | `20m` | quanto tempo o modelo fica na VRAM depois da última inferência |
+| `ollama.timeoutSegundos` | `90` | a inferência inteira, incluindo carregar o modelo |
+| `inferencia.maxKib` | `256` | teto do pedido que chega e do resultado que volta |
+
+A URL é só local porque o agente manda para lá o que a VPS escreveu e devolve o que vier: outro
+endereço transformaria o agente numa ponte da VPS para a rede de casa. O `localhost` é trocado por
+`127.0.0.1`, sem passar pelo arquivo hosts.
+
+**O corpo é montado aqui.** O `dados` do comando segue o formato do `/api/chat`, sem stream, mas
+só três campos são aproveitados, e cada um é revalidado e reconstruído:
+
+- `messages`: `role` entre `system`, `user`, `assistant` e `tool`; `content` em texto; `thinking`
+  e `tool_calls` só no assistant; `tool_name` só no tool. `images` e campos desconhecidos são
+  descartados.
+- `tools`: `{"type":"function","function":{"name","description","parameters"}}`, com nome em
+  `[A-Za-z0-9_-]{1,64}`.
+- `think`, só se for booleano.
+
+`model`, `options`, `keep_alive`, `stream` e `format` vindos da VPS são ignorados: o agente impõe o
+modelo, o `num_ctx` e o `keep_alive` deste arquivo, com `stream=false`. A VPS não decide qual
+modelo ocupa a GPU, nem por quanto tempo.
+
+O resultado traz em `dados` a `message` (`content`, `thinking` e `tool_calls`, cada uma com
+`function.name` e `function.arguments` em objeto), além de `done_reason`, `modelo`,
+`prompt_eval_count`, `eval_count` e `total_duration`. O limite de `dados` é `inferencia.maxKib`
+só para esta ação; as consultas de arquivo continuam com 32 KB.
+
+**Uma inferência por vez.** A GPU é uma só: as inferências rodam numa thread própria, uma depois
+da outra, com até 4 esperando. Enquanto isso o long poll segue e as outras ações (abrir app,
+volume…) continuam valendo. Pedido que passa do prazo de início enquanto espera, ou que a VPS
+cancela, nem chega ao Ollama.
+
+**Falhas** voltam com `dados.codigoErro`, que é o que a VPS usa para decidir o fallback:
+
+| código | quando |
+|---|---|
+| `ollama_offline` | conexão recusada: o Ollama não está rodando |
+| `modelo_ausente` | o Ollama respondeu 404 / "not found": falta o `ollama pull` |
+| `sem_memoria` | o Ollama disse que falta memória para o modelo |
+| `timeout` | passou de `ollama.timeoutSegundos`, ou do prazo de início enquanto esperava na fila |
+| `pedido_grande` | o pedido passou de `inferencia.maxKib` (nada é enviado ao Ollama) |
+| `resposta_grande` | a resposta passou de `inferencia.maxKib` |
+| `pedido_invalido` | estrutura fora do formato acima |
+| `fila_cheia` | já havia 4 inferências esperando |
+| `ia_desativada` | `ollama.ativo=false` (ou URL recusada) |
+| `falha_ollama` | qualquer outra falha |
+
+### O cabeçalho `X-Pc-Ia`
+
+Vai em toda consulta de comandos, ao lado do `X-Pc-Apps`:
+
+```
+ativo=1;ollama=1;modelo=qwen3.5:9b;carregado=1;gpu=1;vramLivreMb=9216;vramTotalMb=12288;gpuUso=35;ocupada=0;inferindo=0
+```
+
+- `ollama` / `carregado`: o `GET /api/ps` respondeu / o modelo configurado está na memória.
+- `gpu`, `vramLivreMb`, `vramTotalMb` e `gpuUso` vêm do `nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader,nounits`
+  (argumentos fixos, limite de 3 s), lido da primeira GPU. Sem nvidia-smi: `gpu=0`, sem esses campos.
+- `ocupada=1`: uso de GPU ≥ 70% sem inferência nossa em andamento nem terminada há menos de 5 s —
+  um jogo aberto, por exemplo.
+- `inferindo`: há inferência rodando agora.
+- Com a IA desligada, o cabeçalho é só `ativo=0`.
+
+A medida vale 15 s; só o `inferindo` é lido a cada consulta. Cada valor passa por um filtro de
+caracteres (`[A-Za-z0-9._:/+-]`, até 64), e o cabeçalho inteiro fica em até 512.
 
 ## O despertar
 
@@ -358,7 +439,8 @@ O cancelamento em execução é observado por consulta à VPS e pode demorar alg
 processos descendentes da execução identificada são encerrados.
 
 O E2 transporta arquivos gerados por upload autenticado (até 8 MiB), capturas PNG/JPEG (até 8 MiB
-decodificados) e respostas estruturadas das consultas de arquivos (até 32 KiB). O diário local
+decodificados), respostas estruturadas das consultas de arquivos (até 32 KiB) e respostas de
+`inferir` (até `inferencia.maxKib`). O diário local
 guarda esses resultados até a VPS confirmar o recebimento; depois remove os payloads da cópia local.
 Conserve o diário entre reinícios para deduplicar comandos, inclusive quando a resposta HTTP se perde.
 ## Lixeira reversível

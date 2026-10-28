@@ -35,7 +35,8 @@ public final class AgentePc {
             "status_pc", "desligar", "reiniciar", "cancelar_desligamento", "modo_repouso",
             "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina",
             "computer_acao", "preparar_edicao", "aplicar_edicao", "preparar_desfazer",
-            "aplicar_desfazer", "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira");
+            "aplicar_desfazer", "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira",
+            "inferir");
 
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
@@ -86,7 +87,15 @@ public final class AgentePc {
             return;
         }
 
-        ClienteJarvis cliente = new ClienteJarvis(config);
+        // A inferência roda na thread da fila; o estado dela vai no X-Pc-Ia de cada consulta.
+        FilaDeInferencia fila = new FilaDeInferencia(new InferenciaLocal(config.ia())::inferir,
+                java.time.Clock.systemUTC());
+        EstadoDaIa estadoIa = new EstadoDaIa(config.ia(), EstadoDaIa.NVIDIA_SMI, fila,
+                java.time.Clock.systemUTC());
+        if (config.ia().ativo()) {
+            log.info("IA local ligada: " + config.ia().modelo() + " em " + config.ia().url());
+        }
+        ClienteJarvis cliente = new ClienteJarvis(config, estadoIa::cabecalho);
         CatalogoRotinas catalogo = CatalogoRotinas.ler(arquivo.toAbsolutePath().getParent()
                 .resolve("rotinas.properties"));
         DiarioE2 diario = new DiarioE2(pastaDeDados().resolve("operacoes-e2"));
@@ -124,7 +133,7 @@ public final class AgentePc {
                 new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
                         System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
                         System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
-                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira);
+                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira, fila);
     }
 
     /**
@@ -177,7 +186,8 @@ public final class AgentePc {
     private static void rodar(ClienteJarvis cliente, ExecutorDeAcoes executor,
             CatalogoRotinas catalogo, DiarioE2 diario, ExecutorComputer computer,
             boolean computerAtivo,
-            ExecutorDeRotinas rotinas, EditorDeArquivos editor, LixeiraDeArquivos lixeira)
+            ExecutorDeRotinas rotinas, EditorDeArquivos editor, LixeiraDeArquivos lixeira,
+            FilaDeInferencia fila)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
         LocalDate ultimoExpurgo = null;
@@ -185,6 +195,8 @@ public final class AgentePc {
             try {
                 cliente.anunciarRotinas(catalogo);
                 for (DiarioE2.Registro registro : diario.pendentes()) {
+                    // Inferência viva na fila: "executando" ali é verdade, não queda no meio.
+                    if (fila.emVoo(registro.id())) continue;
                     if (registro.estado().equals("executando") || registro.estado().equals("recebido")) {
                         diario.incerto(registro.id());
                         registro = diario.obter(registro.id());
@@ -212,6 +224,7 @@ public final class AgentePc {
                         log.warning("comando E2 vencido antes do início: " + comando.id());
                         continue;
                     }
+                    if (fila.emVoo(comando.id())) continue;
                     DiarioE2.Registro anterior = diario.obter(comando.id());
                     if (anterior != null && !anterior.estado().equals("recebido")) {
                         if (anterior.estado().equals("executando")) diario.incerto(comando.id());
@@ -228,6 +241,16 @@ public final class AgentePc {
                         if (!ACOES_E2.contains(comando.acao())) {
                             diario.concluir(comando.id(), "falhou", Resultado.falhou(comando,
                                     "ação E2 desconhecida"), null);
+                        } else if (comando.acao().equals("inferir")) {
+                            boolean naFila = fila.enfileirar(comando, entrega.prazoInicio(),
+                                    () -> cliente.cancelamentoE2(comando.id()),
+                                    (estado, resultado) -> concluirInferencia(cliente, diario,
+                                            comando.id(), estado, resultado));
+                            // Na fila, quem conclui e entrega é a thread dela.
+                            if (naFila) continue;
+                            diario.concluir(comando.id(), "inferir", "falhou",
+                                    InferenciaLocal.falha(comando, InferenciaLocal.FILA_CHEIA,
+                                            "a fila de inferência deste PC está cheia"), null);
                         } else if (comando.acao().equals("computer_acao")) {
                             Resultado resultado = computerAtivo
                                     ? computer.executar(comando)
@@ -328,6 +351,25 @@ public final class AgentePc {
             log.warning("a VPS recusou o resultado de " + registro.id() + " ("
                     + recusa.getMessage() + "); desisto dele para não travar a fila");
             diario.confirmarEnvio(registro.id());
+        }
+    }
+
+    /**
+     * O fim de uma inferência, na thread da fila: grava no diário e tenta entregar.
+     *
+     * <p>Entrega que falhar fica pendente no diário, e o replay do laço principal reenvia — o ID
+     * só sai do "em voo" depois desta chamada, então o laço não a pega pela metade.
+     */
+    private static void concluirInferencia(ClienteJarvis cliente, DiarioE2 diario, String id,
+            String estado, Resultado resultado) {
+        try {
+            diario.concluir(id, "inferir", estado, resultado, null);
+            entregar(cliente, diario, diario.obter(id));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.warning("entrega da inferência " + id + " falhou: " + motivo(e)
+                    + "; o laço reenvia");
         }
     }
 

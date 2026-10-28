@@ -37,6 +37,24 @@ edicao.maxBytesBackup=104857600
 # e apagado. Fora do intervalo 1..3650 o agente nao sobe.
 lixeira.diasRetencao=30
 
+# ---- IA local (Ollama) ----
+# A VPS pode mandar a acao inferir: o agente chama o Ollama DESTE PC e devolve a resposta, sem
+# abrir porta nenhuma. Vem desligado; ligue so com o Ollama instalado e o modelo baixado
+# (ollama pull qwen3.5:9b).
+ollama.ativo=false
+# So http://127.0.0.1 ou http://localhost (com porta). Qualquer outro endereco desliga a IA, com
+# aviso no log: o agente nao vira ponte da VPS para a rede local.
+ollama.url=http://127.0.0.1:11434
+# Modelo, contexto (num_ctx) e keep_alive sao decididos aqui; o que vier da VPS e ignorado.
+ollama.modelo=qwen3.5:9b
+ollama.contexto=8192
+ollama.keepAlive=20m
+# Tempo maximo de uma inferencia, incluindo carregar o modelo na GPU (1..600).
+ollama.timeoutSegundos=90
+# Teto do pedido vindo da VPS e da resposta devolvida, em KiB (1..8192). As outras consultas
+# continuam com o limite de 32 KB.
+inferencia.maxKib=256
+
 # A tela do Jarvis: é ela que a ação abrir_hud abre e que a palavra "Jarvis" acende.
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app

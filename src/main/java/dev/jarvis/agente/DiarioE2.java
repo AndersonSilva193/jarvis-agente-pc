@@ -15,7 +15,8 @@ import tools.jackson.databind.node.ObjectNode;
 /** Um arquivo por ID para sobreviver ao reinício e impedir repetição após início registrado. */
 final class DiarioE2 {
     record Registro(String id, String estado, String mensagem, Integer codigo,
-            String imagemBase64, String arquivo, JsonNode dados, Instant atualizado, boolean enviado) { }
+            String imagemBase64, String arquivo, JsonNode dados, Instant atualizado, boolean enviado,
+            String acao) { }
     private final Path pasta;
     private final JsonMapper json = JsonMapper.builder().build();
     DiarioE2(Path pasta) throws IOException { this.pasta = pasta; Files.createDirectories(pasta); }
@@ -27,33 +28,38 @@ final class DiarioE2 {
                 n.path("codigo").isNumber() ? n.path("codigo").asInt() : null,
                 n.path("imagemBase64").asText(""), n.path("arquivo").asText(""),
                 n.path("dados"), Instant.parse(n.path("atualizado").asText()),
-                n.path("enviado").asBoolean(false));
+                n.path("enviado").asBoolean(false), n.path("acao").asText(""));
     }
     synchronized boolean recebido(String id) throws IOException {
         if (obter(id) != null) return false;
-        guardar(new Registro(id, "recebido", "", null, "", "", null, Instant.now(), false));
+        guardar(new Registro(id, "recebido", "", null, "", "", null, Instant.now(), false, ""));
         return true;
     }
     synchronized boolean iniciar(String id) throws IOException {
         Registro anterior = obter(id);
         if (anterior == null || !anterior.estado().equals("recebido")) return false;
-        guardar(new Registro(id, "executando", "", null, "", "", null, Instant.now(), false));
+        guardar(new Registro(id, "executando", "", null, "", "", null, Instant.now(), false, ""));
         return true;
     }
     synchronized void concluir(String id, String estado, Resultado resultado, Integer codigo) throws IOException {
+        concluir(id, "", estado, resultado, codigo);
+    }
+    /** Com a ação gravada junto: o limite de {@code dados} no envio depende dela. */
+    synchronized void concluir(String id, String acao, String estado, Resultado resultado, Integer codigo)
+            throws IOException {
         guardar(new Registro(id, estado, resultado.mensagem(), codigo,
                 resultado.imagemBase64() == null ? "" : resultado.imagemBase64(),
                 resultado.arquivo() == null ? "" : resultado.arquivo().toString(),
-                resultado.dados(), Instant.now(), false));
+                resultado.dados(), Instant.now(), false, acao));
     }
     synchronized void incerto(String id) throws IOException {
         guardar(new Registro(id, "resultado_incerto", "início registrado sem resultado após reinício",
-                null, "", "", null, Instant.now(), false));
+                null, "", "", null, Instant.now(), false, ""));
     }
     synchronized void confirmarEnvio(String id) throws IOException {
         Registro r = obter(id);
         if (r != null) guardar(new Registro(id, r.estado(), r.mensagem(), r.codigo(),
-                "", "", diagnostico(r), r.atualizado(), true));
+                "", "", diagnostico(r), r.atualizado(), true, r.acao()));
     }
     private JsonNode diagnostico(Registro r) {
         if (r.dados() == null || !r.dados().path("codigoErro").isTextual()) return null;
@@ -81,7 +87,7 @@ final class DiarioE2 {
                         && r.atualizado().isBefore(Instant.now().minus(Duration.ofMinutes(5)))) {
                     guardar(new Registro(r.id(), "resultado_incerto",
                             "captura descartada apos cinco minutos", r.codigo(), "", "",
-                            null, Instant.now(), r.enviado()));
+                            null, Instant.now(), r.enviado(), r.acao()));
                     continue;
                 }
                 if (r != null && r.atualizado().isBefore(Instant.now().minus(Duration.ofDays(2))))
@@ -94,6 +100,7 @@ final class DiarioE2 {
                 .put("mensagem", r.mensagem()).put("atualizado", r.atualizado().toString())
                 .put("imagemBase64", r.imagemBase64()).put("arquivo", r.arquivo())
                 .put("enviado", r.enviado());
+        if (!r.acao().isEmpty()) n.put("acao", r.acao());
         if (r.codigo() != null) n.put("codigo", r.codigo());
         if (r.dados() != null) n.set("dados", r.dados());
         Path destino = caminho(r.id()); Path temporario = destino.resolveSibling(destino.getFileName() + ".tmp");

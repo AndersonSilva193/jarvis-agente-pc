@@ -34,6 +34,34 @@ class DiarioE2Test {
         assertFalse(new DiarioE2(pasta).recebido(ID), "ID aceito não pode executar novamente");
     }
 
+    @Test void acaoSobreviveAoReinicioERegistroAntigoNaoTemAcao() throws Exception {
+        var diario = new DiarioE2(pasta);
+        diario.recebido(ID); diario.iniciar(ID);
+        diario.concluir(ID, "inferir", "concluído", new Resultado(ID, true, "feito", null), null);
+        assertEquals("inferir", new DiarioE2(pasta).obter(ID).acao());
+        new DiarioE2(pasta).confirmarEnvio(ID);
+        assertEquals("inferir", new DiarioE2(pasta).obter(ID).acao());
+
+        String antigo = "223e4567-e89b-12d3-a456-426614174000";
+        java.nio.file.Files.writeString(pasta.resolve(antigo + ".json"),
+                "{\"estado\":\"concluído\",\"mensagem\":\"x\",\"atualizado\":\"2026-10-20T00:00:00Z\","
+                        + "\"imagemBase64\":\"\",\"arquivo\":\"\",\"enviado\":false}");
+        assertEquals("", new DiarioE2(pasta).obter(antigo).acao());
+    }
+
+    @Test void limiteDeDadosMaiorSoParaInferir() throws Exception {
+        Path arquivo = pasta.resolve("config.properties");
+        java.nio.file.Files.writeString(arquivo,
+                "urlApi=https://jarvis.exemplo\npcToken=segredo\ninferencia.maxKib=512\n");
+        Configuracao config = Configuracao.ler(arquivo);
+        var diario = new DiarioE2(pasta.resolve("diario"));
+        diario.recebido(ID); diario.iniciar(ID);
+        diario.concluir(ID, "inferir", "concluído", new Resultado(ID, true, "feito", null), null);
+        assertEquals(512 * 1024, ClienteJarvis.limiteDados(diario.obter(ID), config));
+        diario.concluir(ID, "concluído", new Resultado(ID, true, "feito", null), null);
+        assertEquals(32_000, ClienteJarvis.limiteDados(diario.obter(ID), config));
+    }
+
     @Test void payloadFicaAteAckEDepoisSaiDoDiarioLocal() throws Exception {
         var diario = new DiarioE2(pasta);
         diario.recebido(ID); diario.iniciar(ID);

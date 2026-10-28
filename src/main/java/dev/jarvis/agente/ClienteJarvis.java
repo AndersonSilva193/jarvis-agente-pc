@@ -36,9 +36,24 @@ final class ClienteJarvis {
             .build();
     private final JsonMapper json = JsonMapper.builder().build();
     private final Configuracao config;
+    /** O X-Pc-Ia de cada consulta; nunca lança (ver {@link EstadoDaIa#cabecalho}). */
+    private final java.util.function.Supplier<String> cabecalhoIa;
 
     ClienteJarvis(Configuracao config) {
+        this(config, () -> "ativo=0");
+    }
+
+    ClienteJarvis(Configuracao config, java.util.function.Supplier<String> cabecalhoIa) {
         this.config = config;
+        this.cabecalhoIa = cabecalhoIa;
+    }
+
+    /**
+     * O teto de {@code dados} no resultado: 32 KB para as consultas, como sempre, e
+     * {@code inferencia.maxKib} só para a inferência, que devolve texto de modelo e tool_calls.
+     */
+    static int limiteDados(DiarioE2.Registro r, Configuracao config) {
+        return "inferir".equals(r.acao()) ? config.ia().maxBytes() : 32_000;
     }
 
     void anunciarRotinas(CatalogoRotinas catalogo) throws IOException, InterruptedException {
@@ -57,7 +72,8 @@ final class ClienteJarvis {
 
     EntregaE2 buscarComandoE2() throws IOException, InterruptedException {
         HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos")))
-                .timeout(TIMEOUT_BUSCA).header("X-Pc-Apps", config.cabecalhoDeApps()).GET().build();
+                .timeout(TIMEOUT_BUSCA).header("X-Pc-Apps", config.cabecalhoDeApps())
+                .header("X-Pc-Ia", cabecalhoIa.get()).GET().build();
         HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
         if (resposta.statusCode() == 204) return null;
         if (resposta.statusCode() != 200) throw new IOException("busca E2 HTTP " + resposta.statusCode());
@@ -104,7 +120,7 @@ final class ClienteJarvis {
         if (r.imagemBase64() != null && !r.imagemBase64().isBlank())
             corpo.put("imagemBase64", r.imagemBase64());
         if (r.dados() != null && !r.dados().isMissingNode()) {
-            if (r.dados().toString().getBytes(StandardCharsets.UTF_8).length > 32_000)
+            if (r.dados().toString().getBytes(StandardCharsets.UTF_8).length > limiteDados(r, config))
                 throw new IOException("dados E2 acima do limite para " + r.id());
             corpo.set("dados", r.dados());
         }
@@ -129,6 +145,7 @@ final class ClienteJarvis {
                 // A lista de apps vai em toda consulta: é assim que a VPS monta o enum de
                 // abrir_app sem guardar cópia dela.
                 .header("X-Pc-Apps", config.cabecalhoDeApps())
+                .header("X-Pc-Ia", cabecalhoIa.get())
                 .GET()
                 .build();
 

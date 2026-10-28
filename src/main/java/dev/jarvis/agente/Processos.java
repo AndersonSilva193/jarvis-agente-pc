@@ -3,6 +3,7 @@ package dev.jarvis.agente;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -45,6 +46,32 @@ public final class Processos {
             return new Saida(-1, "o programa não terminou em " + SEGUNDOS + " s");
         }
         return new Saida(processo.exitValue(), cortar(texto));
+    }
+
+    /**
+     * Como o {@link #rodar}, mas para programa de saída curta que pode travar — o nvidia-smi com
+     * o driver em mau estado, por exemplo.
+     *
+     * <p>A ordem é o contrário da do {@code rodar}: espera primeiro e só depois lê. Lendo antes, a
+     * leitura bloquearia até o programa fechar a saída, e o limite nunca valeria. Esperar primeiro
+     * só funciona porque a saída cabe no buffer do pipe — por isso o "curta".
+     *
+     * <p>O texto volta com as quebras de linha, sem o {@link #cortar}: quem chama interpreta a
+     * saída linha a linha, e ela não vai direto para o modelo.
+     */
+    public static Saida rodarComLimite(Duration limite, String... argumentos)
+            throws IOException, InterruptedException {
+        Process processo = new ProcessBuilder(List.of(argumentos))
+                .redirectErrorStream(true)
+                .start();
+        if (!processo.waitFor(limite.toMillis(), TimeUnit.MILLISECONDS)) {
+            processo.destroyForcibly();
+            return new Saida(-1, "o programa não terminou em " + limite.toSeconds() + " s");
+        }
+        try (InputStream saida = processo.getInputStream()) {
+            return new Saida(processo.exitValue(),
+                    new String(saida.readNBytes(4096), StandardCharsets.UTF_8).trim());
+        }
     }
 
     /** Dispara e não espera — para o que abre janela e fica aberto (navegador, editor, player). */
