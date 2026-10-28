@@ -103,16 +103,35 @@ final class ExecutorDeAcoes {
                 return Resultado.falhou(comando, recusa.getMessage());
             }
             if (comando.acao().equals("ler_arquivo") || comando.acao().equals("listar_arquivos")) {
-                log.warning("consulta '" + comando.acao() + "' falhou: " + e.getClass().getSimpleName());
                 String motivo = e.getMessage();
+                // Só passam as frases fixas que o leitor e o catálogo escrevem: mensagem de
+                // biblioteca pode carregar caminho da máquina. Sem o motivo, porém, o modelo
+                // repete o mesmo pedido errado até desistir — então cada recusa de parâmetro
+                // diz o que corrigir.
                 String aviso = switch (motivo == null ? "" : motivo) {
                     case "arquivo removido desde o cadastro" -> "arquivo removido desde o cadastro";
                     case "arquivo alterado desde o cadastro", "arquivo alterado durante a leitura" ->
                             "arquivo alterado desde o cadastro";
                     case "arquivo não encontrado no catálogo" -> "arquivo não encontrado no catálogo";
                     case "tempo de leitura excedido (12 s)" -> "tempo de leitura excedido (12 s)";
+                    case "identificador inválido" ->
+                            "identificador inválido; use o id de listar_arquivos, não o nome do arquivo";
+                    case "aba não encontrada" -> "aba não encontrada; leia sem 'aba' para ver as abas";
+                    case "intervalo de células inválido" ->
+                            "intervalo de células inválido; até 100 linhas e 30 colunas por leitura";
+                    case "intervalo de páginas inválido" ->
+                            "intervalo de páginas inválido; até 5 páginas, dentro do total do PDF";
+                    case "intervalo CSV inválido" -> "intervalo CSV inválido; até 100 linhas por leitura";
+                    case "intervalo de texto inválido" ->
+                            "intervalo de texto inválido; 'inicio' passa do fim do arquivo";
+                    case "JSON Pointer inválido", "caminho JSON inexistente", "busca XLSX inválida",
+                            "delimitador inválido", "formato não suportado", "formato inválido",
+                            "texto não está em UTF-8", "PDF protegido por senha",
+                            "paginação ou filtro inválido", "resultado excede o limite de 28 KB" -> motivo;
                     default -> "não foi possível consultar o arquivo; verifique os parâmetros ou o formato";
                 };
+                log.warning("consulta '" + comando.acao() + "' falhou: " + e.getClass().getSimpleName()
+                        + (aviso.startsWith("não foi possível") ? "" : " (" + motivo + ")"));
                 return Resultado.falhou(comando, aviso);
             }
             log.warning("ação '" + comando.acao() + "' falhou: " + e);
