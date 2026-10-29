@@ -87,8 +87,15 @@ public final class AgentePc {
             return;
         }
 
-        // A inferência roda na thread da fila; o estado dela vai no X-Pc-Ia de cada consulta.
-        FilaDeInferencia fila = new FilaDeInferencia(new InferenciaLocal(config.ia())::inferir,
+        // A inferência roda na thread da fila; o estado dela vai no X-Pc-Ia de cada consulta. As
+        // parciais do stream saem pelo cliente, que só existe depois do estado da IA — daí a
+        // referência preenchida adiante.
+        var clienteDasParciais = new java.util.concurrent.atomic.AtomicReference<ClienteJarvis>();
+        InferenciaLocal.Parcial parcial = (id, inicio, texto) -> {
+            ClienteJarvis destino = clienteDasParciais.get();
+            return destino == null || destino.enviarParcialE2(id, inicio, texto);
+        };
+        FilaDeInferencia fila = new FilaDeInferencia(new InferenciaLocal(config.ia(), parcial)::inferir,
                 java.time.Clock.systemUTC());
         EstadoDaIa estadoIa = new EstadoDaIa(config.ia(), EstadoDaIa.NVIDIA_SMI, fila,
                 java.time.Clock.systemUTC());
@@ -96,6 +103,7 @@ public final class AgentePc {
             log.info("IA local ligada: " + config.ia().modelo() + " em " + config.ia().url());
         }
         ClienteJarvis cliente = new ClienteJarvis(config, estadoIa::cabecalho);
+        clienteDasParciais.set(cliente);
         CatalogoRotinas catalogo = CatalogoRotinas.ler(arquivo.toAbsolutePath().getParent()
                 .resolve("rotinas.properties"));
         DiarioE2 diario = new DiarioE2(pastaDeDados().resolve("operacoes-e2"));

@@ -101,6 +101,26 @@ final class ClienteJarvis {
         } catch (Exception e) { return false; }
     }
 
+    /**
+     * Um pedaço do texto de um {@code inferir} com stream. Falso só no 410, que é a VPS dizendo
+     * que desistiu — aí o Ollama é largado. Qualquer outra falha segue o stream: o resultado final
+     * leva o texto inteiro, e a VPS reconcilia por ele o pedaço que se perdeu.
+     */
+    boolean enviarParcialE2(String id, int inicio, String texto) {
+        try {
+            var corpo = json.createObjectNode().put("inicio", inicio).put("texto", texto);
+            HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos/" + id + "/parcial")))
+                    .timeout(Duration.ofSeconds(3)).header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(corpo))).build();
+            return http.send(pedido, HttpResponse.BodyHandlers.discarding()).statusCode() != 410;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            return true;
+        }
+    }
+
     boolean enviarResultadoE2(DiarioE2.Registro r) throws IOException, InterruptedException {
         boolean arquivo = r.arquivo() != null && !r.arquivo().isBlank()
                 && r.estado().equals("concluído");

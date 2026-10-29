@@ -1,7 +1,9 @@
 package dev.jarvis.agente;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.ConnectException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -9,6 +11,7 @@ import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Set;
@@ -21,7 +24,13 @@ import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * A ação {@code inferir}: um {@code /api/chat} no Ollama deste PC, sem stream.
+ * A ação {@code inferir}: um {@code /api/chat} no Ollama deste PC.
+ *
+ * <p>Sem stream por padrão. Com {@code "stream": true} no pedido <b>e</b> um canal de parciais
+ * ({@link Parcial}), o Ollama transmite e o texto vai à VPS em pedaços enquanto o modelo escreve —
+ * é o que o holograma usa para montar peça por peça. O resultado final continua sendo o mesmo
+ * {@code resumir} de sempre, com o texto inteiro: a VPS reconcilia por ele o que uma parcial
+ * perdida deixou para trás.
  *
  * <p>O corpo que a VPS manda é só matéria-prima. O que vai ao Ollama é montado aqui do zero, com
  * uma lista fechada de campos: mensagens, ferramentas e o {@code think}. Modelo, contexto e
@@ -45,6 +54,18 @@ final class InferenciaLocal {
     static final String RESPOSTA_GRANDE = "resposta_grande";
     static final String FALHA_OLLAMA = "falha_ollama";
     static final String FILA_CHEIA = "fila_cheia";
+    static final String CANCELADO = "cancelado";
+
+    /** Teto de uma geração com stream, por cima da inatividade: a VPS desiste bem antes disso. */
+    static final Duration TETO_DO_STREAM = Duration.ofMinutes(5);
+    /** De quanto em quanto o texto pendente vai à VPS, mesmo sem quebra de linha. */
+    static final Duration INTERVALO_DE_PARCIAL = Duration.ofMillis(300);
+
+    /** Para onde vai cada pedaço do texto. Falso = a VPS desistiu (410), e o stream é largado. */
+    @FunctionalInterface
+    interface Parcial {
+        boolean enviar(String id, int inicio, String texto);
+    }
 
     private static final Set<String> PAPEIS = Set.of("system", "user", "assistant", "tool");
     private static final String NOME_DE_FERRAMENTA = "[A-Za-z0-9_-]{1,64}";
@@ -52,6 +73,8 @@ final class InferenciaLocal {
     private static final int FOLGA_RESPOSTA = 64 * 1024;
 
     private final Configuracao.ConfigIa config;
+    /** Nulo = sem canal de parciais, e o {@code stream} do pedido é ignorado. */
+    private final Parcial parcial;
     private final JsonMapper json = JsonMapper.builder().build();
     private final HttpClient http = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
@@ -60,7 +83,12 @@ final class InferenciaLocal {
             .build();
 
     InferenciaLocal(Configuracao.ConfigIa config) {
+        this(config, null);
+    }
+
+    InferenciaLocal(Configuracao.ConfigIa config, Parcial parcial) {
         this.config = config;
+        this.parcial = parcial;
     }
 
     /** Uma recusa com código: o que a VPS lê para decidir o fallback. */
@@ -75,7 +103,9 @@ final class InferenciaLocal {
 
     Resultado inferir(ComandoRecebido comando) throws InterruptedException {
         try {
-            JsonNode resposta = chamar(montarCorpo(comando.dados()));
+            ObjectNode corpo = montarCorpo(comando.dados());
+            JsonNode resposta = corpo.path("stream").asBoolean(false)
+                    ? transmitir(comando.id(), corpo) : chamar(corpo);
             ObjectNode dados = resumir(resposta);
             if (json.writeValueAsBytes(dados).length > config.maxBytes()) {
                 throw new Recusa(RESPOSTA_GRANDE, "a resposta passou de " + config.maxKib() + " KiB");
@@ -123,8 +153,15 @@ final class InferenciaLocal {
         JsonNode pensar = pedido.path("think");
         if (pensar.isBoolean()) corpo.put("think", pensar.asBoolean());
 
-        corpo.put("stream", false);
-        corpo.putObject("options").put("num_ctx", config.contexto());
+        // O stream só vale com quem receba as parciais; sem isso, o pedido é o de sempre.
+        corpo.put("stream", parcial != null && pedido.path("stream").asBoolean(false));
+        ObjectNode opcoes = corpo.putObject("options").put("num_ctx", config.contexto());
+        // A temperatura é o único ajuste de amostragem que a VPS pode pedir, e presa em 0..1:
+        // as options dela (num_ctx, temperature crua) continuam sem passar.
+        JsonNode temperatura = pedido.path("temperatura");
+        if (temperatura.isNumber() && Double.isFinite(temperatura.asDouble())) {
+            opcoes.put("temperature", Math.max(0, Math.min(1, temperatura.asDouble())));
+        }
         corpo.put("keep_alive", config.keepAlive());
         return corpo;
     }
@@ -206,18 +243,8 @@ final class InferenciaLocal {
             try (InputStream entrada = resposta.body()) {
                 bytes = entrada.readNBytes(config.maxBytes() + FOLGA_RESPOSTA + 1);
             }
-        } catch (HttpConnectTimeoutException | ConnectException e) {
-            // Antes do HttpTimeoutException: o de conexão é subclasse dele, e aqui é "fora do ar".
-            throw new Recusa(OLLAMA_OFFLINE, "o Ollama não está no ar neste PC");
-        } catch (HttpTimeoutException e) {
-            throw new Recusa(TIMEOUT, "o Ollama não respondeu em " + config.timeoutSegundos() + " s");
         } catch (IOException e) {
-            // O HttpClient embrulha a conexão recusada em IOException com o ConnectException dentro.
-            if (e.getCause() instanceof ConnectException) {
-                throw new Recusa(OLLAMA_OFFLINE, "o Ollama não está no ar neste PC");
-            }
-            log.warning("falha falando com o Ollama: " + e.getClass().getSimpleName());
-            throw new Recusa(FALHA_OLLAMA, "falha falando com o Ollama");
+            throw recusaDeRede(e);
         }
         if (bytes.length > config.maxBytes() + FOLGA_RESPOSTA) {
             throw new Recusa(RESPOSTA_GRANDE, "a resposta passou de " + config.maxKib() + " KiB");
@@ -229,21 +256,194 @@ final class InferenciaLocal {
             raiz = null;
         }
         if (resposta.statusCode() != 200) {
-            String erro = raiz != null && raiz.path("error").isString()
-                    ? raiz.path("error").stringValue().toLowerCase(Locale.ROOT) : "";
-            log.warning("o Ollama respondeu HTTP " + resposta.statusCode());
-            if (erro.contains("memory") || erro.contains("oom")) {
-                throw new Recusa(SEM_MEMORIA, "memória insuficiente para o modelo");
-            }
-            if (resposta.statusCode() == 404 || erro.contains("not found")) {
-                throw new Recusa(MODELO_AUSENTE, "o modelo " + config.modelo() + " não está instalado");
-            }
-            throw new Recusa(FALHA_OLLAMA, "o Ollama recusou o pedido (HTTP " + resposta.statusCode() + ")");
+            throw recusaDoOllama(resposta.statusCode(), raiz);
         }
         if (raiz == null || !raiz.path("message").isObject()) {
             throw new Recusa(FALHA_OLLAMA, "resposta do Ollama ilegível");
         }
         return raiz;
+    }
+
+    /** A falha de rede ao falar com o Ollama, com o código que a VPS entende. */
+    private Recusa recusaDeRede(IOException e) {
+        // O de conexão antes do HttpTimeoutException: é subclasse dele, e aqui é "fora do ar". O
+        // HttpClient também embrulha a conexão recusada em IOException com o ConnectException dentro.
+        if (e instanceof HttpConnectTimeoutException || e instanceof ConnectException
+                || e.getCause() instanceof ConnectException) {
+            return new Recusa(OLLAMA_OFFLINE, "o Ollama não está no ar neste PC");
+        }
+        if (e instanceof HttpTimeoutException) {
+            return new Recusa(TIMEOUT, "o Ollama não respondeu em " + config.timeoutSegundos() + " s");
+        }
+        log.warning("falha falando com o Ollama: " + e.getClass().getSimpleName());
+        return new Recusa(FALHA_OLLAMA, "falha falando com o Ollama");
+    }
+
+    /** O HTTP fora do 200, ou o erro no meio do stream, com o código que a VPS entende. */
+    private Recusa recusaDoOllama(int status, JsonNode raiz) {
+        String erro = raiz != null && raiz.path("error").isString()
+                ? raiz.path("error").stringValue().toLowerCase(Locale.ROOT) : "";
+        log.warning("o Ollama respondeu HTTP " + status);
+        if (erro.contains("memory") || erro.contains("oom")) {
+            return new Recusa(SEM_MEMORIA, "memória insuficiente para o modelo");
+        }
+        if (status == 404 || erro.contains("not found")) {
+            return new Recusa(MODELO_AUSENTE, "o modelo " + config.modelo() + " não está instalado");
+        }
+        return new Recusa(FALHA_OLLAMA, "o Ollama recusou o pedido (HTTP " + status + ")");
+    }
+
+    /**
+     * O {@code /api/chat} com {@code stream: true}: lê o NDJSON do Ollama linha a linha, junta o
+     * {@code message.content} e manda o texto à VPS a cada quebra de linha ou a cada
+     * {@link #INTERVALO_DE_PARCIAL}. O {@code thinking} não vai — não é texto da resposta.
+     *
+     * <p>Três coisas largam o stream, e fechar a resposta é o que faz o Ollama parar de gerar e
+     * soltar a GPU: a VPS respondendo 410 a uma parcial ({@link #CANCELADO}), nada chegando em
+     * {@code ollama.timeoutSegundos} ({@link #TIMEOUT}, aqui como <b>inatividade</b>: uma geração
+     * longa que está escrevendo não é um Ollama travado) e o {@link #TETO_DO_STREAM}.
+     *
+     * <p>Volta a mesma forma da resposta sem stream, para o {@code resumir} não saber a diferença.
+     */
+    private JsonNode transmitir(String id, ObjectNode corpo) throws Recusa, InterruptedException {
+        HttpRequest pedido = HttpRequest.newBuilder(URI.create(config.url() + "/api/chat"))
+                // Com stream o limite cobre só a chegada dos cabeçalhos; dali em diante vale a vigia.
+                .timeout(Duration.ofSeconds(config.timeoutSegundos()))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(json.writeValueAsBytes(corpo)))
+                .build();
+        HttpResponse<InputStream> resposta;
+        try {
+            resposta = http.send(pedido, HttpResponse.BodyHandlers.ofInputStream());
+        } catch (IOException e) {
+            throw recusaDeRede(e);
+        }
+        if (resposta.statusCode() != 200) {
+            JsonNode raiz;
+            try (InputStream entrada = resposta.body()) {
+                raiz = json.readTree(entrada.readNBytes(FOLGA_RESPOSTA));
+            } catch (IOException | JacksonException e) {
+                raiz = null;
+            }
+            throw recusaDoOllama(resposta.statusCode(), raiz);
+        }
+
+        InputStream entrada = resposta.body();
+        Vigia vigia = new Vigia(entrada, Duration.ofSeconds(config.timeoutSegundos()));
+        StringBuilder texto = new StringBuilder();
+        StringBuilder pendente = new StringBuilder();
+        int enviado = 0;
+        long bytes = 0;
+        long ultimoEnvio = System.nanoTime();
+        JsonNode ultimo = null;
+        try (BufferedReader linhas = new BufferedReader(new InputStreamReader(entrada, StandardCharsets.UTF_8))) {
+            String linha;
+            while ((linha = linhas.readLine()) != null) {
+                vigia.sinal();
+                if (linha.isBlank()) continue;
+                JsonNode pedaco;
+                try {
+                    pedaco = json.readTree(linha);
+                } catch (JacksonException e) {
+                    throw new Recusa(FALHA_OLLAMA, "stream do Ollama ilegível");
+                }
+                if (pedaco.path("error").isString()) {
+                    throw recusaDoOllama(200, pedaco);
+                }
+                String conteudo = pedaco.path("message").path("content").asString("");
+                bytes += conteudo.getBytes(StandardCharsets.UTF_8).length;
+                if (bytes > config.maxBytes()) {
+                    throw new Recusa(RESPOSTA_GRANDE, "a resposta passou de " + config.maxKib() + " KiB");
+                }
+                texto.append(conteudo);
+                pendente.append(conteudo);
+                boolean fim = pedaco.path("done").asBoolean(false);
+                if (fim) ultimo = pedaco;
+                if (!pendente.isEmpty() && (fim || pendente.indexOf("\n") >= 0
+                        || System.nanoTime() - ultimoEnvio >= INTERVALO_DE_PARCIAL.toNanos())) {
+                    if (!parcial.enviar(id, enviado, pendente.toString())) {
+                        vigia.largar(CANCELADO);
+                        throw new Recusa(CANCELADO, "a VPS desistiu da inferência");
+                    }
+                    enviado += pendente.length();
+                    pendente.setLength(0);
+                    ultimoEnvio = System.nanoTime();
+                }
+                if (fim) break;
+            }
+        } catch (IOException e) {
+            String motivo = vigia.motivo();
+            if (TIMEOUT.equals(motivo)) {
+                throw new Recusa(TIMEOUT, "o Ollama ficou " + config.timeoutSegundos() + " s sem escrever");
+            }
+            if (motivo != null) {
+                throw new Recusa(motivo, "o stream do Ollama foi largado");
+            }
+            throw recusaDeRede(e);
+        } finally {
+            vigia.parar();
+        }
+        if (ultimo == null) {
+            throw new Recusa(FALHA_OLLAMA, "o stream do Ollama acabou sem o fim");
+        }
+        ObjectNode raiz = ((ObjectNode) ultimo).deepCopy();
+        ObjectNode mensagem = raiz.putObject("message").put("role", "assistant").put("content", texto.toString());
+        JsonNode chamadas = ultimo.path("message").path("tool_calls");
+        if (chamadas.isArray()) mensagem.set("tool_calls", chamadas.deepCopy());
+        return raiz;
+    }
+
+    /**
+     * Fecha o stream de dentro quando ele para de andar: sem linha nova na inatividade, ou depois
+     * do {@link #TETO_DO_STREAM}. Fechar a resposta faz a leitura bloqueada sair com erro, e o
+     * {@link #motivo()} diz por quê.
+     */
+    private static final class Vigia {
+        private final InputStream entrada;
+        private final long inicio = System.nanoTime();
+        private final Thread thread;
+        private volatile long ultimoSinal = System.nanoTime();
+        private volatile String motivo;
+
+        Vigia(InputStream entrada, Duration inatividade) {
+            this.entrada = entrada;
+            this.thread = Thread.ofVirtual().name("vigia-inferencia").start(() -> {
+                try {
+                    while (motivo == null) {
+                        Thread.sleep(100);
+                        long agora = System.nanoTime();
+                        if (agora - ultimoSinal > inatividade.toNanos()
+                                || agora - inicio > TETO_DO_STREAM.toNanos()) {
+                            largar(TIMEOUT);
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    // Parada normal: o stream terminou.
+                }
+            });
+        }
+
+        void sinal() {
+            ultimoSinal = System.nanoTime();
+        }
+
+        synchronized void largar(String porque) {
+            if (motivo != null) return;
+            motivo = porque;
+            try {
+                entrada.close();
+            } catch (IOException e) {
+                // Já fechado: o efeito é o mesmo.
+            }
+        }
+
+        String motivo() {
+            return motivo;
+        }
+
+        void parar() {
+            thread.interrupt();
+        }
     }
 
     /** Só o que a VPS precisa, reconstruído: nada do Ollama passa sem ser escolhido aqui. */
