@@ -167,4 +167,31 @@ class LeituraDeArquivosTest {
         }
         assertEquals(1, new CatalogoDeArquivos(pasta).listar(dados("{}")) .path("total").intValue());
     }
+
+    @Test void pastaEntradaTemCatalogoProprioELeituraPeloId() throws Exception {
+        String raiz = criar("raiz", "md", "da raiz");
+        Files.createDirectories(pasta.resolve("entrada"));
+        Files.writeString(pasta.resolve("entrada").resolve("chegou.md"), "# novo", StandardCharsets.UTF_8);
+
+        var entrada = new CatalogoDeArquivos(pasta).listar(dados("{'pasta':'entrada'}".replace('\'', '"')));
+        assertEquals("entrada", entrada.path("pasta").stringValue(), "a VPS confere o eco da pasta");
+        assertEquals(1, entrada.path("total").intValue());
+        String id = entrada.path("arquivos").get(0).path("id").stringValue();
+        assertEquals("chegou.md", entrada.path("arquivos").get(0).path("nome").stringValue());
+        assertEquals("disponivel", entrada.path("arquivos").get(0).path("estado").stringValue());
+        assertNotEquals(raiz, id);
+        assertTrue(ler(id, "").path("conteudo").stringValue().contains("novo"), "lido pelo ID, na subpasta");
+
+        var naRaiz = new CatalogoDeArquivos(pasta).listar(dados("{}"));
+        assertTrue(naRaiz.path("pasta").isMissingNode(), "a listagem da raiz não muda de forma");
+        assertEquals(1, naRaiz.path("total").intValue(), "o arquivo da entrada não aparece na raiz");
+        assertEquals(raiz, naRaiz.path("arquivos").get(0).path("id").stringValue());
+
+        var outraVez = new CatalogoDeArquivos(pasta).listar(dados("{'pasta':'entrada'}".replace('\'', '"')));
+        assertEquals(id, outraVez.path("arquivos").get(0).path("id").stringValue(), "o ID é estável");
+        assertThrows(java.io.IOException.class, () -> new CatalogoDeArquivos(pasta)
+                .listar(dados("{'pasta':'../fora'}".replace('\'', '"'))), "só a subpasta fixa");
+        assertThrows(java.io.IOException.class, () -> new CatalogoDeArquivos(pasta)
+                .listar(dados("{'pasta':'backup'}".replace('\'', '"'))));
+    }
 }
