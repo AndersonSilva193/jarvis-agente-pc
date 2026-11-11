@@ -541,6 +541,9 @@ O leitor retorna `ultimaLinhaFisica`, `proximaLinhaFisica`, `intervaloFiltro` (o
 e `tabelas` com nome/intervalo, até 50, sinalizando `tabelasTruncadas` quando necessário.
 Os quatro limites explícitos de linha/coluna incluem células ausentes com `existe=false`,
 `tipo=vazio` e `valorAnterior=null`; uma célula BLANK existente tem `existe=true`.
+Célula de `tipo=data` traz o dia em `valor` e `valorAnterior` (`AAAA-MM-DD`, o que a edição
+confere) e a data com a hora em `dataHora` (`AAAA-MM-DDTHH:MM`); hora pura do Excel aparece
+como `1899-12-31THH:MM`. É de onde a VPS tira o horário da agenda.
 
 Contrato das operações (além de `tipo`):
 

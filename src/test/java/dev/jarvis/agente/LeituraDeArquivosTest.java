@@ -121,6 +121,25 @@ class LeituraDeArquivosTest {
         assertTrue(partes.toString().contains("é".repeat(30_000)));
     }
 
+    @Test void dataDoExcelTrazAHoraAParte() throws Exception {
+        Path arquivo = pasta.resolve("agenda.xlsx");
+        try (var livro = new XSSFWorkbook()) {
+            var folha = livro.createSheet("Agenda");
+            var formato = livro.createCellStyle();
+            formato.setDataFormat(livro.getCreationHelper().createDataFormat().getFormat("dd/mm/yyyy hh:mm"));
+            var celula = folha.createRow(0).createCell(0);
+            celula.setCellValue(java.time.LocalDateTime.of(2026, 11, 11, 14, 30));
+            celula.setCellStyle(formato);
+            try (var saida = Files.newOutputStream(arquivo)) { livro.write(saida); }
+        }
+        JsonNode lida = ler(buscar("agenda", "xlsx"), ",\"aba\":\"Agenda\",\"linhaInicial\":1,\"linhaFinal\":1,"
+                + "\"colunaInicial\":1,\"colunaFinal\":1").path("celulas").get(0);
+        assertEquals("data", lida.path("tipo").stringValue());
+        assertEquals("2026-11-11", lida.path("valor").stringValue());
+        assertEquals("2026-11-11", lida.path("valorAnterior").stringValue());
+        assertEquals("2026-11-11T14:30", lida.path("dataHora").stringValue());
+    }
+
     @Test void celulaGrandeTemContinuacaoEFormulaEhDadoEmCache() throws Exception {
         Path arquivo = pasta.resolve("enorme.xlsx");
         try (var livro = new XSSFWorkbook()) {

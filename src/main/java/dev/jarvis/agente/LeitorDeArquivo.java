@@ -295,9 +295,13 @@ final class LeitorDeArquivo {
                     switch (celula.getCellType()) {
                         case STRING -> item.put("valor", celula.getStringCellValue());
                         case NUMERIC -> {
-                            if ("data".equals(item.path("tipo").asText()))
+                            if ("data".equals(item.path("tipo").asText())) {
                                 item.put("valor", item.path("valorAnterior").asText());
-                            else item.put("valor", celula.getNumericCellValue());
+                                // O valor (e o valorAnterior que a edição confere) é só o dia; a
+                                // hora vai à parte, para a VPS ler agenda sem perder o horário.
+                                item.put("dataHora", org.apache.poi.ss.usermodel.DateUtil
+                                        .getLocalDateTime(celula.getNumericCellValue()).toString());
+                            } else item.put("valor", celula.getNumericCellValue());
                         }
                         case BOOLEAN -> item.put("valor", celula.getBooleanCellValue());
                         case ERROR -> item.put("valor", celula.getErrorCellValue());
