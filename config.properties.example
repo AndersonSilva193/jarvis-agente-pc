@@ -59,6 +59,13 @@ inferencia.maxKib=256
 # Também só https. Sem esta linha, o despertar fica desligado — não haveria para onde acordar.
 urlHud=https://jarvis-hud-gamma.vercel.app
 
+# ---- Programa em primeiro plano ----
+# A cada consulta de comandos vai o cabecalho X-Pc-Foco com o NOME do processo em primeiro plano
+# (ex.: chrome, Code, WINWORD). Nunca o titulo da janela: ele pode ter nome de arquivo, assunto
+# de e-mail ou texto de pagina. Leitura a cada 30 s no maximo; nome fora de [A-Za-z0-9._-] ou
+# acima de 40 caracteres, ou qualquer falha, e cabecalho ausente. false desliga o cabecalho.
+reportarFoco=true
+
 # ---- Despertar ----
 # Duas palmas ou a palavra "Jarvis" abrem a tela, e o Jarvis se apresenta falando.
 # Os dois gatilhos dividem o mesmo microfone e valem ao mesmo tempo.

@@ -38,14 +38,37 @@ final class ClienteJarvis {
     private final Configuracao config;
     /** O X-Pc-Ia de cada consulta; nunca lança (ver {@link EstadoDaIa#cabecalho}). */
     private final java.util.function.Supplier<String> cabecalhoIa;
+    /** O X-Pc-Foco de cada consulta; nulo = não mandar (ver {@link ProgramaEmFoco}). */
+    private final java.util.function.Supplier<String> cabecalhoFoco;
 
     ClienteJarvis(Configuracao config) {
         this(config, () -> "ativo=0");
     }
 
     ClienteJarvis(Configuracao config, java.util.function.Supplier<String> cabecalhoIa) {
+        this(config, cabecalhoIa, () -> null);
+    }
+
+    ClienteJarvis(Configuracao config, java.util.function.Supplier<String> cabecalhoIa,
+            java.util.function.Supplier<String> cabecalhoFoco) {
         this.config = config;
         this.cabecalhoIa = cabecalhoIa;
+        this.cabecalhoFoco = cabecalhoFoco;
+    }
+
+    /**
+     * Põe o X-Pc-Foco só quando há um nome válido. Confere de novo aqui porque um CR/LF chegando
+     * ao HttpClient lançaria a cada consulta e deixaria o laço em recuo para sempre; e qualquer
+     * falha é só o cabeçalho ausente, nunca a busca de comandos parada.
+     */
+    HttpRequest.Builder comFoco(HttpRequest.Builder pedido) {
+        String foco;
+        try {
+            foco = cabecalhoFoco.get();
+        } catch (RuntimeException e) {
+            return pedido;
+        }
+        return ProgramaEmFoco.valido(foco) ? pedido.header("X-Pc-Foco", foco) : pedido;
     }
 
     /**
@@ -71,9 +94,9 @@ final class ClienteJarvis {
     }
 
     EntregaE2 buscarComandoE2() throws IOException, InterruptedException {
-        HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos")))
+        HttpRequest pedido = comFoco(autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos")))
                 .timeout(TIMEOUT_BUSCA).header("X-Pc-Apps", config.cabecalhoDeApps())
-                .header("X-Pc-Ia", cabecalhoIa.get()).GET().build();
+                .header("X-Pc-Ia", cabecalhoIa.get())).GET().build();
         HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
         if (resposta.statusCode() == 204) return null;
         if (resposta.statusCode() != 200) throw new IOException("busca E2 HTTP " + resposta.statusCode());
@@ -160,12 +183,12 @@ final class ClienteJarvis {
      * @throws IOException quando a VPS não responde ou recusa — quem chama faz a espera crescente
      */
     ComandoRecebido buscarComando() throws IOException, InterruptedException {
-        HttpRequest requisicao = autenticar(HttpRequest.newBuilder(uri("/api/pc/comandos")))
+        HttpRequest requisicao = comFoco(autenticar(HttpRequest.newBuilder(uri("/api/pc/comandos")))
                 .timeout(TIMEOUT_BUSCA)
                 // A lista de apps vai em toda consulta: é assim que a VPS monta o enum de
                 // abrir_app sem guardar cópia dela.
                 .header("X-Pc-Apps", config.cabecalhoDeApps())
-                .header("X-Pc-Ia", cabecalhoIa.get())
+                .header("X-Pc-Ia", cabecalhoIa.get()))
                 .GET()
                 .build();
 

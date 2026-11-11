@@ -31,6 +31,8 @@ import java.util.logging.Logger;
  * @param lixeiraDiasRetencao dias que um arquivo fica em {@code <pastaArquivos>/.lixeira} antes de
  *                        ser apagado de vez. O expurgo roda na partida e uma vez por dia
  * @param ia              o Ollama deste PC, que a ação {@code inferir} usa
+ * @param reportarFoco    mandar no {@code X-Pc-Foco} o nome do processo em primeiro plano — só o
+ *                        nome, nunca o título da janela
  */
 public record Configuracao(
         URI urlApi,
@@ -50,7 +52,21 @@ public record Configuracao(
         boolean computerUseAtivo,
         LimitesEdicao limitesEdicao,
         int lixeiraDiasRetencao,
-        ConfigIa ia) {
+        ConfigIa ia,
+        boolean reportarFoco) {
+
+    /** Construtor mantido para quem monta a configuração sem falar do X-Pc-Foco. */
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo, LimitesEdicao limitesEdicao, int lixeiraDiasRetencao,
+            ConfigIa ia) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo, limitesEdicao,
+                lixeiraDiasRetencao, ia, true);
+    }
 
     /**
      * O Ollama local. Modelo, contexto e keep_alive são decididos aqui, nunca pela VPS.
@@ -188,7 +204,8 @@ public record Configuracao(
                         inteiro(propriedades, "edicao.maxBytesBackup", 100 * 1024 * 1024,
                                 1024 * 1024, 1024 * 1024 * 1024)),
                 inteiro(propriedades, "lixeira.diasRetencao", DIAS_RETENCAO_PADRAO, 1, 3650),
-                ia(propriedades));
+                ia(propriedades),
+                booleano(propriedades, "reportarFoco", true));
     }
 
     private static ConfigIa ia(Properties propriedades) throws IOException {

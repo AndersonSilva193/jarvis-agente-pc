@@ -51,6 +51,29 @@ class ConfiguracaoTest {
         assertFalse(config.kiosk());
         assertTrue(config.manterPcAcordado());
         assertFalse(config.computerUseAtivo());
+        assertTrue(config.reportarFoco(), "sem a linha, o X-Pc-Foco vai");
+    }
+
+    @Test
+    @DisplayName("reportarFoco: false/não desligam; valor torto cai no padrão true")
+    void reportarFoco() throws Exception {
+        assertTrue(ler("reportarFoco=true\n").reportarFoco());
+        assertFalse(ler("reportarFoco=false\n").reportarFoco());
+        assertFalse(ler("reportarFoco=nao\n").reportarFoco());
+        assertFalse(ler("reportarFoco=0\n").reportarFoco());
+        assertTrue(ler("reportarFoco=talvez\n").reportarFoco());
+        assertTrue(ler("reportarFoco=\n").reportarFoco());
+    }
+
+    @Test
+    @DisplayName("o config.properties.example traz reportarFoco=true")
+    void exemploTrazReportarFoco() throws Exception {
+        Path exemplo = Path.of("config.properties.example");
+        java.util.Properties propriedades = new java.util.Properties();
+        try (var entrada = Files.newInputStream(exemplo)) {
+            propriedades.load(entrada);
+        }
+        assertEquals("true", propriedades.getProperty("reportarFoco"));
     }
 
     @Test

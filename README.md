@@ -277,6 +277,18 @@ ativo=1;ollama=1;modelo=qwen3.5:9b;carregado=1;gpu=1;vramLivreMb=9216;vramTotalM
 A medida vale 15 s; só o `inferindo` é lido a cada consulta. Cada valor passa por um filtro de
 caracteres (`[A-Za-z0-9._:/+-]`, até 64), e o cabeçalho inteiro fica em até 512.
 
+### O cabeçalho `X-Pc-Foco`
+
+Também em toda consulta de comandos: o **nome do processo** em primeiro plano — `chrome`, `Code`,
+`WINWORD`. **Nunca o título da janela**, que pode ter nome de arquivo, assunto de e-mail ou texto
+de página; a interface do user32 do agente nem declara a função que lê o título.
+
+O nome sai do caminho do executável pela API do Windows (`GetForegroundWindow`,
+`GetWindowThreadProcessId`, `QueryFullProcessImageNameW`), só leitura e sem abrir processo nem
+PowerShell. Vale 30 s. Só passa nome em `[A-Za-z0-9._-]` com até 40 caracteres, sem o `.exe`; o que
+não cabe é recusado inteiro, não filtrado. Qualquer falha — sem janela em foco, processo que não
+deixa ler, nome fora do padrão — é cabeçalho ausente. `reportarFoco=false` desliga.
+
 ## O despertar
 
 Bata **duas palmas** ou diga *"Jarvis"* — a palavra **sozinha**, sem frase em volta — para abrir a

@@ -102,7 +102,10 @@ public final class AgentePc {
         if (config.ia().ativo()) {
             log.info("IA local ligada: " + config.ia().modelo() + " em " + config.ia().url());
         }
-        ClienteJarvis cliente = new ClienteJarvis(config, estadoIa::cabecalho);
+        // Só o nome do processo em primeiro plano, nunca o título da janela (ver ProgramaEmFoco).
+        ProgramaEmFoco foco = new ProgramaEmFoco(config.reportarFoco(), ProgramaEmFoco.WINDOWS,
+                java.time.Clock.systemUTC());
+        ClienteJarvis cliente = new ClienteJarvis(config, estadoIa::cabecalho, foco::cabecalho);
         clienteDasParciais.set(cliente);
         CatalogoRotinas catalogo = CatalogoRotinas.ler(arquivo.toAbsolutePath().getParent()
                 .resolve("rotinas.properties"));
