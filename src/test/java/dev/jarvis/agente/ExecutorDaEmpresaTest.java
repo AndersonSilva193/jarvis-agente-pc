@@ -30,6 +30,7 @@ class ExecutorDaEmpresaTest {
     private volatile int statusDaExecucao = 200;
     private volatile String execucao = "{\"state\":\"working\"}";
     private ExecutorDaEmpresa executor;
+    private final java.util.concurrent.atomic.AtomicInteger abortes = new java.util.concurrent.atomic.AtomicInteger();
 
     private record Fim(String estado, Resultado resultado) { }
 
@@ -39,7 +40,14 @@ class ExecutorDaEmpresaTest {
             troca.getRequestBody().readAllBytes();
             responder(troca, 200, "{\"runId\":\"r1\"}");
         });
-        servidor.createContext("/company/runs/", troca -> responder(troca, statusDaExecucao, execucao));
+        servidor.createContext("/company/runs/", troca -> {
+            if (troca.getRequestURI().getPath().endsWith("/abort")) {
+                abortes.incrementAndGet();
+                responder(troca, 200, "{\"ok\":true}");
+                return;
+            }
+            responder(troca, statusDaExecucao, execucao);
+        });
         servidor.start();
         executor = criar(Duration.ofSeconds(20));
     }
@@ -151,6 +159,20 @@ class ExecutorDaEmpresaTest {
         CompletableFuture<Fim> fim = new CompletableFuture<>();
         executor.aceitar(comando("c11", "faça"), () -> true, (estado, r) -> fim.complete(new Fim(estado, r)));
         assertEquals("cancelado", fim.get(10, TimeUnit.SECONDS).estado());
+    }
+
+    @Test void cancelarParaOsAgentesDeVerdade() throws Exception {
+        CompletableFuture<Fim> fim = new CompletableFuture<>();
+        executor.aceitar(comando("c13", "faça"), () -> true, (estado, r) -> fim.complete(new Fim(estado, r)));
+        fim.get(10, TimeUnit.SECONDS);
+        assertEquals(1, abortes.get());
+    }
+
+    @Test void estourarOPrazoTambemParaOsAgentes() throws Exception {
+        executor.close();
+        executor = criar(Duration.ofMillis(30));
+        rodar(comando("c14", "faça"));
+        assertEquals(1, abortes.get());
     }
 
     @Test void comTresEmVooRecusaAQuarta() throws Exception {

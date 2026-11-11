@@ -239,6 +239,8 @@ public final class AgentePc {
         while (true) {
             try {
                 cliente.anunciarRotinas(catalogo);
+                // Antes da reposição: um resultado preso não pode impedir a limpeza do diário.
+                diario.removerAntigos();
                 for (DiarioE2.Registro registro : diario.pendentes()) {
                     // Inferência viva na fila: "executando" ali é verdade, não queda no meio.
                     if (fila.emVoo(registro.id()) || empresaEmVoo(empresa, registro.id())) continue;
@@ -248,7 +250,6 @@ public final class AgentePc {
                     }
                     entregar(cliente, diario, registro);
                 }
-                diario.removerAntigos();
                 // O "uma vez por dia" do expurgo, sem thread nem timer, no mesmo lugar da
                 // manutenção do diário. O try é obrigatório: o catch do laço trata tudo como
                 // falha de rede e entra em recuo, então uma pasta quebrada emudeceria o agente.

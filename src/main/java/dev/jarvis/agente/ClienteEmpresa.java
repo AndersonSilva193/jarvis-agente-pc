@@ -55,6 +55,12 @@ final class ClienteEmpresa {
                 corpo.path("reason").asString(""));
     }
 
+    void abortar(String idDaExecucao) throws IOException, InterruptedException {
+        HttpRequest pedido = pedido("/company/runs/" + idDaExecucao + "/abort")
+                .POST(HttpRequest.BodyPublishers.noBody()).build();
+        ler(pedido, enviar(pedido));
+    }
+
     JsonNode status() throws IOException, InterruptedException {
         HttpRequest pedido = pedido("/company/status").GET().build();
         return ler(pedido, enviar(pedido));

@@ -62,7 +62,7 @@ final class SupervisorHermes3d implements AutoCloseable {
         estados.put(new Servico("adaptador", 18789, List.of(node, "server/hermes-gateway-adapter.js"),
                 config.pasta(), Map.of()), new Estado());
         estados.put(new Servico("studio", 3000, List.of(node, "server/index.js"),
-                config.pasta(), Map.of("HOST", "127.0.0.1", "NODE_ENV", "production")), new Estado());
+                config.pasta(), Map.of("HOST", "127.0.0.1", "NODE_ENV", "production", "UPSTREAM_ALLOWLIST", "localhost,127.0.0.1")), new Estado());
     }
 
     synchronized void verificar() {

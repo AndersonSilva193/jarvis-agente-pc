@@ -148,14 +148,19 @@ final class ClienteJarvis {
         boolean arquivo = r.arquivo() != null && !r.arquivo().isBlank()
                 && r.estado().equals("concluído");
         boolean edicao = r.dados() != null && r.dados().path("editId").isTextual();
+        // A tarefa da empresa já terminou: sem o arquivo, o dono ainda precisa receber o resumo.
+        boolean toleraEntrega = edicao || "empresa_delegar".equals(r.acao());
         boolean entregaFalhou = false;
         if (arquivo) try {
             entregaFalhou = !enviarArquivo(r.id(), java.nio.file.Path.of(r.arquivo()));
+        } catch (RecusaDefinitiva recusa) {
+            if (!toleraEntrega) throw recusa;
+            entregaFalhou = true;
         } catch (IOException e) {
             if (!edicao) throw e;
             entregaFalhou = true;
         }
-        if (entregaFalhou && !edicao) throw new IOException("upload E2 recusado para " + r.id());
+        if (entregaFalhou && !toleraEntrega) throw new IOException("upload E2 recusado para " + r.id());
         var corpo = json.createObjectNode().put("estado", r.estado()).put("mensagem",
                 entregaFalhou ? "salvo, entrega falhou: " + r.mensagem() : r.mensagem());
         if (r.codigo() != null) corpo.put("codigoSaida", r.codigo());
@@ -164,7 +169,7 @@ final class ClienteJarvis {
             corpo.put("imagemBase64", r.imagemBase64());
         if (r.dados() != null && !r.dados().isMissingNode()) {
             if (r.dados().toString().getBytes(StandardCharsets.UTF_8).length > limiteDados(r, config))
-                throw new IOException("dados E2 acima do limite para " + r.id());
+                throw new RecusaDefinitiva("dados E2 acima do limite para " + r.id(), 413);
             corpo.set("dados", r.dados());
         }
         HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos/" + r.id() + "/resultado")))
@@ -266,12 +271,20 @@ final class ClienteJarvis {
 
     private boolean enviarArquivo(String id, java.nio.file.Path arquivo)
             throws IOException, InterruptedException {
-        long tamanho = java.nio.file.Files.size(arquivo);
-        if (tamanho == 0 || tamanho > 8L * 1024 * 1024) throw new IOException("arquivo vazio ou acima de 8 MiB");
+        long tamanho;
+        try {
+            tamanho = java.nio.file.Files.size(arquivo);
+        } catch (java.nio.file.NoSuchFileException sumiu) {
+            throw new RecusaDefinitiva("arquivo E2 não existe mais para " + id, 404);
+        }
+        if (tamanho == 0 || tamanho > 8L * 1024 * 1024) throw new RecusaDefinitiva("arquivo vazio ou acima de 8 MiB", 413);
         HttpRequest pedido = autenticar(HttpRequest.newBuilder(uri("/api/pc/arquivos/" + id)))
                 .timeout(Duration.ofSeconds(60)).header("Content-Type", "application/octet-stream")
                 .POST(HttpRequest.BodyPublishers.ofFile(arquivo)).build();
         HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
+        if (RecusaDefinitiva.definitivo(resposta.statusCode())) {
+            throw new RecusaDefinitiva("upload E2 HTTP " + resposta.statusCode(), resposta.statusCode());
+        }
         return resposta.statusCode() == 204;
     }
 

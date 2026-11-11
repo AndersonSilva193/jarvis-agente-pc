@@ -98,7 +98,8 @@ class SupervisorHermes3dTest {
     @Test void studioFicaSoNoLocalEmProducao() {
         supervisor().verificar();
         assertEquals("server/index.js", partida("studio").comando().get(1));
-        assertEquals(Map.of("HOST", "127.0.0.1", "NODE_ENV", "production"), partida("studio").ambiente());
+        assertEquals(Map.of("HOST", "127.0.0.1", "NODE_ENV", "production", "UPSTREAM_ALLOWLIST", "localhost,127.0.0.1"),
+                partida("studio").ambiente());
     }
 
     @Test void processoVivoAindaSubindoNaoGanhaCopia() {

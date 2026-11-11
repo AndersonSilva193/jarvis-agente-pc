@@ -103,6 +103,7 @@ final class ExecutorDaEmpresa implements AutoCloseable {
         long limite = System.nanoTime() + prazo.toNanos();
         while (System.nanoTime() < limite) {
             if (cancelado.getAsBoolean()) {
+                pararAgentes(idDaExecucao);
                 return new Fim("cancelado", Resultado.falhou(comando, "cancelado pelo dono"));
             }
             try {
@@ -123,7 +124,17 @@ final class ExecutorDaEmpresa implements AutoCloseable {
             }
             Thread.sleep(intervalo.toMillis());
         }
+        pararAgentes(idDaExecucao);
         return falha(comando, "A tarefa passou do prazo e continua sem resposta do Hermes3D");
+    }
+
+    /** Os agentes têm terminal no PC: quem desistiu da tarefa não pode deixá-los rodando. */
+    private void pararAgentes(String idDaExecucao) throws InterruptedException {
+        try {
+            cliente.abortar(idDaExecucao);
+        } catch (IOException foraDoAr) {
+            log.warning("não consegui parar a execução " + idDaExecucao + ": " + foraDoAr.getMessage());
+        }
     }
 
     private Resultado concluida(ComandoRecebido comando, String texto) {
