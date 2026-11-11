@@ -42,6 +42,7 @@ public final class AgentePc {
 
     private static final Duration ESPERA_INICIAL = Duration.ofSeconds(1);
     private static final Duration ESPERA_MAXIMA = Duration.ofSeconds(60);
+    private static final Duration VIGIA_DO_HERMES3D = Duration.ofSeconds(15);
 
     private AgentePc() {
     }
@@ -128,6 +129,7 @@ public final class AgentePc {
         JanelaDaHud janela = new JanelaDaHud(config);
         EnergiaDoWindows energia = new EnergiaDoWindows();
         Despertador despertador = despertar(config, janela, energia, cliente);
+        SupervisorHermes3d supervisor = iniciarHermes3d(config);
 
         // O primeiro shutdown hook do projeto, e ele existe por um motivo concreto: o pedido de
         // energia ao Windows precisa ser desfeito. Sem isto, matar o agente deixaria o PC sem
@@ -137,6 +139,9 @@ public final class AgentePc {
                 despertador.close();
             }
             energia.close();
+            if (supervisor != null) {
+                supervisor.close();
+            }
         }, "encerrando"));
 
         rodar(cliente, new ExecutorDeAcoes(config, janela, despertador, editor), catalogo, diario,
@@ -164,6 +169,31 @@ public final class AgentePc {
         thread.setDaemon(true);
         thread.start();
         return despertador;
+    }
+
+    /** Vigia o Hermes3D numa thread própria; uma falha ali nunca derruba o agente. */
+    private static SupervisorHermes3d iniciarHermes3d(Configuracao config) {
+        if (!config.hermes3d().ativo()) {
+            return null;
+        }
+        SupervisorHermes3d supervisor = new SupervisorHermes3d(config.hermes3d(),
+                SupervisorHermes3d.partidaReal(pastaDeDados()), SupervisorHermes3d::portaLocalAberta,
+                java.time.Clock.systemUTC());
+        Thread thread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    supervisor.verificar();
+                    Thread.sleep(VIGIA_DO_HERMES3D.toMillis());
+                } catch (InterruptedException parar) {
+                    Thread.currentThread().interrupt();
+                } catch (RuntimeException falha) {
+                    log.warning("vigia do Hermes3D falhou: " + falha.getMessage());
+                }
+            }
+        }, "vigia-hermes3d");
+        thread.setDaemon(true);
+        thread.start();
+        return supervisor;
     }
 
     /**

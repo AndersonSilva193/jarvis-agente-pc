@@ -120,3 +120,10 @@ app.chrome=C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe
 app.vscode=C:\\Users\\SEU_USUARIO\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe
 app.intellij=C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe
 app.spotify=C:\\Users\\SEU_USUARIO\\AppData\\Roaming\\Spotify\\Spotify.exe
+
+# Hermes3D: com as quatro chaves, o agente liga o escritório junto com o Windows.
+# Use barras normais nos caminhos. O token é o HERMES_API_KEY do .env do Hermes3D.
+#hermes3d.pasta=C:/Users/voce/Desktop/Hermes3D
+#hermes3d.node=C:/Program Files/nodejs/node.exe
+#hermes3d.hermes=C:/Users/voce/AppData/Local/hermes/bin/hermes.exe
+#hermes3d.token=

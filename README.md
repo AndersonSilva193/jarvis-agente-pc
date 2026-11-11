@@ -73,6 +73,13 @@ valendo.
 
 O `config.properties` tem o token e está no `.gitignore`. Mantenha assim.
 
+## Hermes3D
+
+Com as chaves `hermes3d.*` preenchidas, o agente liga o backend Hermes, o adaptador e o Studio,
+e os religa se caírem. Antes da primeira vez, rode `npm run build` na pasta do Hermes3D e
+`plugins/hermes3d-team/install.ps1` para instalar as ferramentas de equipe.
+Serviço cuja porta já está aberta não é iniciado de novo.
+
 ## Rodar na mão (para testar)
 
 ```powershell
