@@ -151,16 +151,18 @@ final class ClienteJarvis {
         // A tarefa da empresa já terminou: sem o arquivo, o dono ainda precisa receber o resumo.
         boolean toleraEntrega = edicao || "empresa_delegar".equals(r.acao());
         boolean entregaFalhou = false;
+        boolean recusadaDeVez = false;
         if (arquivo) try {
             entregaFalhou = !enviarArquivo(r.id(), java.nio.file.Path.of(r.arquivo()));
         } catch (RecusaDefinitiva recusa) {
             if (!toleraEntrega) throw recusa;
             entregaFalhou = true;
+            recusadaDeVez = true;
         } catch (IOException e) {
             if (!edicao) throw e;
             entregaFalhou = true;
         }
-        if (entregaFalhou && !toleraEntrega) throw new IOException("upload E2 recusado para " + r.id());
+        if (entregaFalhou && !edicao && !recusadaDeVez) throw new IOException("upload E2 recusado para " + r.id());
         var corpo = json.createObjectNode().put("estado", r.estado()).put("mensagem",
                 entregaFalhou ? "salvo, entrega falhou: " + r.mensagem() : r.mensagem());
         if (r.codigo() != null) corpo.put("codigoSaida", r.codigo());
