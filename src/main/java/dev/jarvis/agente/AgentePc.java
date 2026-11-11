@@ -36,7 +36,7 @@ public final class AgentePc {
             "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina",
             "computer_acao", "preparar_edicao", "aplicar_edicao", "preparar_desfazer",
             "aplicar_desfazer", "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira",
-            "inferir");
+            "inferir", "empresa_abrir", "empresa_status", "empresa_delegar");
 
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
@@ -144,12 +144,16 @@ public final class AgentePc {
             }
         }, "encerrando"));
 
+        ExecutorDaEmpresa empresa = config.hermes3d().ativo()
+                ? new ExecutorDaEmpresa(new ClienteEmpresa(ClienteEmpresa.ENDERECO_PADRAO, config.hermes3d().token()),
+                        config.pastaArquivos(), ExecutorDaEmpresa.INTERVALO, ExecutorDaEmpresa.PRAZO)
+                : null;
         rodar(cliente, new ExecutorDeAcoes(config, janela, despertador, editor), catalogo, diario,
                 computer, config.computerUseAtivo(),
                 new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
                         System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
                         System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
-                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira, fila);
+                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira, fila, empresa);
     }
 
     /**
@@ -228,7 +232,7 @@ public final class AgentePc {
             CatalogoRotinas catalogo, DiarioE2 diario, ExecutorComputer computer,
             boolean computerAtivo,
             ExecutorDeRotinas rotinas, EditorDeArquivos editor, LixeiraDeArquivos lixeira,
-            FilaDeInferencia fila)
+            FilaDeInferencia fila, ExecutorDaEmpresa empresa)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
         LocalDate ultimoExpurgo = null;
@@ -237,7 +241,7 @@ public final class AgentePc {
                 cliente.anunciarRotinas(catalogo);
                 for (DiarioE2.Registro registro : diario.pendentes()) {
                     // Inferência viva na fila: "executando" ali é verdade, não queda no meio.
-                    if (fila.emVoo(registro.id())) continue;
+                    if (fila.emVoo(registro.id()) || empresaEmVoo(empresa, registro.id())) continue;
                     if (registro.estado().equals("executando") || registro.estado().equals("recebido")) {
                         diario.incerto(registro.id());
                         registro = diario.obter(registro.id());
@@ -265,7 +269,7 @@ public final class AgentePc {
                         log.warning("comando E2 vencido antes do início: " + comando.id());
                         continue;
                     }
-                    if (fila.emVoo(comando.id())) continue;
+                    if (fila.emVoo(comando.id()) || empresaEmVoo(empresa, comando.id())) continue;
                     DiarioE2.Registro anterior = diario.obter(comando.id());
                     if (anterior != null && !anterior.estado().equals("recebido")) {
                         if (anterior.estado().equals("executando")) diario.incerto(comando.id());
@@ -292,6 +296,15 @@ public final class AgentePc {
                             diario.concluir(comando.id(), "inferir", "falhou",
                                     InferenciaLocal.falha(comando, InferenciaLocal.FILA_CHEIA,
                                             "a fila de inferência deste PC está cheia"), null);
+                        } else if (comando.acao().equals("empresa_delegar")) {
+                            boolean naFila = empresa != null && empresa.aceitar(comando,
+                                    () -> cliente.cancelamentoE2(comando.id()),
+                                    (estado, resultado) -> concluirEmSegundoPlano(cliente, diario,
+                                            comando.id(), comando.acao(), estado, resultado));
+                            if (naFila) continue;
+                            diario.concluir(comando.id(), comando.acao(), "falhou", Resultado.falhou(comando,
+                                    empresa == null ? AcoesDaEmpresa.SEM_HERMES3D
+                                            : "a empresa já tem três tarefas em andamento neste PC"), null);
                         } else if (comando.acao().equals("computer_acao")) {
                             Resultado resultado = computerAtivo
                                     ? computer.executar(comando)
@@ -403,15 +416,24 @@ public final class AgentePc {
      */
     private static void concluirInferencia(ClienteJarvis cliente, DiarioE2 diario, String id,
             String estado, Resultado resultado) {
+        concluirEmSegundoPlano(cliente, diario, id, "inferir", estado, resultado);
+    }
+
+    private static void concluirEmSegundoPlano(ClienteJarvis cliente, DiarioE2 diario, String id, String acao,
+            String estado, Resultado resultado) {
         try {
-            diario.concluir(id, "inferir", estado, resultado, null);
+            diario.concluir(id, acao, estado, resultado, null);
             entregar(cliente, diario, diario.obter(id));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            log.warning("entrega da inferência " + id + " falhou: " + motivo(e)
+            log.warning("entrega de " + acao + " " + id + " falhou: " + motivo(e)
                     + "; o laço reenvia");
         }
+    }
+
+    private static boolean empresaEmVoo(ExecutorDaEmpresa empresa, String id) {
+        return empresa != null && empresa.emVoo(id);
     }
 
     private static void configurarLog() {
