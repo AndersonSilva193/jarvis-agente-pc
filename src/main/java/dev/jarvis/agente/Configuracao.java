@@ -34,6 +34,8 @@ import java.util.logging.Logger;
  * @param reportarFoco    mandar no {@code X-Pc-Foco} o nome do processo em primeiro plano — só o
  *                        nome, nunca o título da janela
  * @param hermes3d        o Hermes3D que este agente sobe e com quem fala
+ * @param planilhasPermitidas os CSVs da raiz de {@code pastaArquivos} que a VPS pode acrescentar,
+ *                        alterar e remover linhas (nomes em minúsculas)
  */
 public record Configuracao(
         URI urlApi,
@@ -55,7 +57,24 @@ public record Configuracao(
         int lixeiraDiasRetencao,
         ConfigIa ia,
         boolean reportarFoco,
-        ConfigHermes3d hermes3d) {
+        ConfigHermes3d hermes3d,
+        java.util.Set<String> planilhasPermitidas) {
+
+    /** As planilhas dos agentes do escritório, quando o config.properties não diz outra coisa. */
+    static final java.util.Set<String> PLANILHAS_PADRAO = java.util.Set.of("agenda.csv", "financas.csv", "leads.csv");
+
+    /** Construtor mantido para quem monta a configuração sem falar das planilhas. */
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo, LimitesEdicao limitesEdicao, int lixeiraDiasRetencao,
+            ConfigIa ia, boolean reportarFoco, ConfigHermes3d hermes3d) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo, limitesEdicao,
+                lixeiraDiasRetencao, ia, reportarFoco, hermes3d, PLANILHAS_PADRAO);
+    }
 
     /** Construtor mantido para quem monta a configuração sem falar do Hermes3D. */
     public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
@@ -232,7 +251,20 @@ public record Configuracao(
                 inteiro(propriedades, "lixeira.diasRetencao", DIAS_RETENCAO_PADRAO, 1, 3650),
                 ia(propriedades),
                 booleano(propriedades, "reportarFoco", true),
-                hermes3d(propriedades));
+                hermes3d(propriedades),
+                planilhas(propriedades));
+    }
+
+    private static java.util.Set<String> planilhas(Properties propriedades) {
+        if (!propriedades.containsKey("planilhas.permitidas")) return PLANILHAS_PADRAO;
+        java.util.Set<String> nomes = new java.util.HashSet<>();
+        for (String nome : texto(propriedades, "planilhas.permitidas").split(",")) {
+            String limpo = nome.trim();
+            if (limpo.isEmpty()) continue;
+            if (PlanilhasPermitidas.nomeValido(limpo)) nomes.add(limpo.toLowerCase(Locale.ROOT));
+            else log.warning("planilhas.permitidas: '" + limpo + "' não é um nome simples de CSV; ignorado");
+        }
+        return java.util.Set.copyOf(nomes);
     }
 
     private static ConfigHermes3d hermes3d(Properties propriedades) {

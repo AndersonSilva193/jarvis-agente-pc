@@ -37,6 +37,12 @@ edicao.maxBytesBackup=104857600
 # e apagado. Fora do intervalo 1..3650 o agente nao sobe.
 lixeira.diasRetencao=30
 
+# ---- Planilhas dos agentes ----
+# CSVs da raiz de pastaArquivos em que a VPS pode acrescentar, alterar e remover linhas (agenda e
+# livro financeiro do escritório). Só nomes simples, separados por vírgula; caminho é ignorado.
+# Estes também podem ser editados por fora (Excel, agente de prospecção) sem o catálogo recusar.
+planilhas.permitidas=agenda.csv,financas.csv,leads.csv
+
 # ---- IA local (Ollama) ----
 # A VPS pode mandar a acao inferir: o agente chama o Ollama DESTE PC e devolve a resposta, sem
 # abrir porta nenhuma. Vem desligado; ligue so com o Ollama instalado e o modelo baixado

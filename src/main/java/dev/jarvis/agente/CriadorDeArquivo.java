@@ -433,8 +433,13 @@ final class CriadorDeArquivo {
     }
 
     private static String csv(String valor, boolean proteger) {
-        if (proteger && !valor.isEmpty() && "=+-@".indexOf(valor.charAt(0)) >= 0) valor = "'" + valor;
+        if (proteger) valor = protegerFormula(valor);
         return "\"" + valor.replace("\"", "\"\"") + "\"";
+    }
+
+    /** Valor que o Excel leria como fórmula ganha um apóstrofo na frente e vira texto. */
+    static String protegerFormula(String valor) {
+        return !valor.isEmpty() && "=+-@".indexOf(valor.charAt(0)) >= 0 ? "'" + valor : valor;
     }
 
     private static String texto(JsonNode no, String campo) {

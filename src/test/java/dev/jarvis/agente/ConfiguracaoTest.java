@@ -31,6 +31,15 @@ class ConfiguracaoTest {
         return Configuracao.ler(arquivo);
     }
 
+    @Test void planilhasPermitidasTemPadraoDosAgentes() throws Exception {
+        assertEquals(java.util.Set.of("agenda.csv", "financas.csv", "leads.csv"), ler("").planilhasPermitidas());
+    }
+
+    @Test void planilhasPermitidasIgnoraNomeComCaminho() throws Exception {
+        assertEquals(java.util.Set.of("agenda.csv", "metas.csv"),
+                ler("planilhas.permitidas=Agenda.csv, metas.csv, ../x.csv, sub/y.csv\n").planilhasPermitidas());
+    }
+
     @Test void semAsChavesDoHermes3dElePermaneceDesligado() throws Exception {
         assertFalse(ler("").hermes3d().ativo());
     }
