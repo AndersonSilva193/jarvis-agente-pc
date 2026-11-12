@@ -146,7 +146,26 @@ class PlanilhasPermitidasTest {
         planilhas.acrescentar("agenda.csv", CAB_AGENDA,
                 List.of(List.of("a2", "13/11/2026", "", "", "Reunião", "")));
         String linha = texto("agenda.csv").lines().filter(l -> l.contains("Dentista")).findFirst().orElseThrow();
-        assertTrue(linha.matches("[0-9a-f]{8};12/11/2026;10:00;;Dentista;"), linha);
+        assertTrue(linha.matches("[a-f][0-9a-f]{7};12/11/2026;10:00;;Dentista;"), linha);
+    }
+
+    @Test
+    void agendaFeitaAMaoSemColunaIdGanhaAColuna() throws IOException {
+        Files.writeString(pasta.resolve("agenda.csv"),
+                "Data;Início;Fim;Compromisso;Local\r\n12/11/2026;10:00;;Dentista;\r\n");
+        planilhas.acrescentar("agenda.csv", CAB_AGENDA,
+                List.of(List.of("a2", "13/11/2026", "", "", "Reunião", "")));
+        List<String> linhas = texto("agenda.csv").lines().toList();
+        assertEquals("Id;Data;Início;Fim;Compromisso;Local", linhas.get(0));
+        assertTrue(linhas.get(1).matches("[a-f][0-9a-f]{7};12/11/2026;10:00;;Dentista;"), linhas.get(1));
+        assertEquals("a2;13/11/2026;;;Reunião;", linhas.get(2));
+    }
+
+    @Test
+    void colunaQueFaltaEntraNoFimDoCabecalho() throws IOException {
+        Files.writeString(pasta.resolve("financas.csv"), "Id;Data\r\nl1;10/11/2026\r\n");
+        planilhas.acrescentar("financas.csv", CAB_FIN, List.of(List.of("l2", "11/11/2026", "gasto")));
+        assertEquals("Id;Data;Tipo\r\nl1;10/11/2026;\r\nl2;11/11/2026;gasto\r\n", texto("financas.csv"));
     }
 
     @Test

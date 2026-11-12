@@ -90,8 +90,12 @@ final class PlanilhasPermitidas {
         int[] destino = new int[cabecalho.size()];
         for (int i = 0; i < cabecalho.size(); i++) {
             destino[i] = coluna(tabela.cabecalho, cabecalho.get(i));
-            if (destino[i] < 0)
-                throw new IOException(NAO_PERMITIDO + ": a planilha não tem a coluna " + cabecalho.get(i));
+            if (destino[i] < 0) {
+                // Planilha feita à mão sem esta coluna: ela entra no fim, vazia nas linhas antigas.
+                tabela.cabecalho.add(cabecalho.get(i));
+                for (List<String> linha : tabela.linhas) linha.add("");
+                destino[i] = tabela.cabecalho.size() - 1;
+            }
         }
         Set<String> ids = new HashSet<>();
         for (List<String> linha : tabela.linhas) ids.add(linha.get(tabela.id).toLowerCase(Locale.ROOT));
@@ -191,10 +195,14 @@ final class PlanilhasPermitidas {
         List<List<String>> linhas = parse(decodificar(bytes));
         if (linhas.isEmpty()) throw new IOException(NAO_PERMITIDO + ": planilha sem cabeçalho");
         List<String> cabecalho = new ArrayList<>(linhas.remove(0));
+        // Planilha feita à mão sem coluna Id: ela entra na frente, e cada linha ganha o seu.
+        boolean semId = coluna(cabecalho, "id") < 0;
+        if (semId) cabecalho.add(0, "Id");
         int id = coluna(cabecalho, "id");
-        if (id < 0) throw new IOException(NAO_PERMITIDO + ": a planilha não tem coluna Id");
         List<List<String>> dados = new ArrayList<>();
-        for (List<String> linha : linhas) {
+        for (List<String> lida : linhas) {
+            List<String> linha = new ArrayList<>(lida);
+            if (semId) linha.add(0, "");
             List<String> cheia = vazia(cabecalho.size());
             for (int i = 0; i < Math.min(linha.size(), cabecalho.size()); i++) cheia.set(i, linha.get(i));
             if (cheia.stream().allMatch(String::isBlank)) continue;
@@ -312,8 +320,13 @@ final class PlanilhasPermitidas {
         return linha;
     }
 
-    private static String novoId() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    /**
+     * Oito caracteres hexadecimais começando por letra: só com dígitos (ou como {@code 123e4567}) o
+     * Excel leria número, cortaria o zero da frente ou viraria notação científica ao salvar.
+     */
+    static String novoId() {
+        String hex = UUID.randomUUID().toString().replace("-", "");
+        return "abcdef".charAt(Character.digit(hex.charAt(0), 16) % 6) + hex.substring(1, 8);
     }
 
     private static final class Tabela {
