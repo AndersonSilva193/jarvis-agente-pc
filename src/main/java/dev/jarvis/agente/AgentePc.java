@@ -36,7 +36,11 @@ public final class AgentePc {
             "falso_positivo", "criar_arquivo", "listar_arquivos", "ler_arquivo", "rodar_rotina",
             "computer_acao", "preparar_edicao", "aplicar_edicao", "preparar_desfazer",
             "aplicar_desfazer", "mover_para_lixeira", "restaurar_da_lixeira", "listar_lixeira",
-            "inferir", "empresa_abrir", "empresa_status", "empresa_delegar");
+            "inferir", "empresa_abrir", "empresa_status", "empresa_delegar", "acrescentar_linhas",
+            "alterar_linha", "remover_linha");
+
+    private static final java.util.Set<String> ACOES_DE_PLANILHA = java.util.Set.of(
+            "acrescentar_linhas", "alterar_linha", "remover_linha");
 
     private static final Logger log = Logger.getLogger(AgentePc.class.getName());
 
@@ -45,6 +49,71 @@ public final class AgentePc {
     private static final Duration VIGIA_DO_HERMES3D = Duration.ofSeconds(15);
 
     private AgentePc() {
+    }
+
+    /**
+     * {@code acrescentar_linhas}, {@code alterar_linha} e {@code remover_linha}. Tudo o que vem em
+     * {@code dados} é conferido aqui: texto onde se espera texto, matriz onde se espera matriz. A
+     * falha volta com o prefixo de {@link PlanilhasPermitidas} para a VPS saber se tenta de novo.
+     */
+    static Resultado executarPlanilha(ComandoRecebido comando, PlanilhasPermitidas planilhas) {
+        tools.jackson.databind.JsonNode dados = comando.dados();
+        try {
+            if (dados == null || !dados.isObject() || !dados.path("arquivo").isTextual())
+                throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": pedido sem arquivo");
+            String arquivo = dados.path("arquivo").stringValue();
+            PlanilhasPermitidas.Saida saida = switch (comando.acao()) {
+                case "acrescentar_linhas" -> planilhas.acrescentar(arquivo, textos(dados.path("cabecalho")),
+                        matriz(dados.path("linhas")));
+                case "alterar_linha" -> planilhas.alterar(arquivo, texto(dados.path("id")), mapa(dados.path("valores")));
+                case "remover_linha" -> planilhas.remover(arquivo, texto(dados.path("id")));
+                default -> throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": ação desconhecida");
+            };
+            tools.jackson.databind.node.ObjectNode resposta = tools.jackson.databind.json.JsonMapper.builder().build()
+                    .createObjectNode().put("gravadas", saida.gravadas()).put("jaExistiam", saida.jaExistiam());
+            return Resultado.comDados(comando, resposta, "planilha gravada");
+        } catch (IOException e) {
+            String mensagem = e.getMessage() == null ? PlanilhasPermitidas.NAO_PERMITIDO : e.getMessage();
+            return Resultado.falhou(comando, mensagem.length() > 280 ? mensagem.substring(0, 280) : mensagem);
+        }
+    }
+
+    private static String texto(tools.jackson.databind.JsonNode no) throws IOException {
+        if (!no.isTextual() || no.stringValue().length() > 200)
+            throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": id inválido");
+        return no.stringValue();
+    }
+
+    private static java.util.List<String> textos(tools.jackson.databind.JsonNode no) throws IOException {
+        if (!no.isArray() || no.isEmpty() || no.size() > 30)
+            throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": cabeçalho inválido");
+        java.util.List<String> lista = new java.util.ArrayList<>();
+        for (tools.jackson.databind.JsonNode item : no) {
+            if (!item.isTextual() || item.stringValue().length() > 2000)
+                throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": célula que não é texto");
+            lista.add(item.stringValue());
+        }
+        return lista;
+    }
+
+    private static java.util.List<java.util.List<String>> matriz(tools.jackson.databind.JsonNode no) throws IOException {
+        if (!no.isArray() || no.size() > PlanilhasPermitidas.MAX_LINHAS)
+            throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": linhas inválidas");
+        java.util.List<java.util.List<String>> linhas = new java.util.ArrayList<>();
+        for (tools.jackson.databind.JsonNode linha : no) linhas.add(textos(linha));
+        return linhas;
+    }
+
+    private static java.util.Map<String, String> mapa(tools.jackson.databind.JsonNode no) throws IOException {
+        if (!no.isObject() || no.isEmpty() || no.size() > 30)
+            throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": valores inválidos");
+        java.util.Map<String, String> valores = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, tools.jackson.databind.JsonNode> campo : no.properties()) {
+            if (!campo.getValue().isTextual() || campo.getValue().stringValue().length() > 2000)
+                throw new IOException(PlanilhasPermitidas.NAO_PERMITIDO + ": valor que não é texto");
+            valores.put(campo.getKey(), campo.getValue().stringValue());
+        }
+        return valores;
     }
 
     public static void main(String[] args) throws Exception {
@@ -114,6 +183,9 @@ public final class AgentePc {
         EditorDeArquivos editor = new EditorDeArquivos(config.pastaArquivos(), pastaDeDados(),
                 arquivo, config.limitesEdicao());
         editor.recuperarPendentes(diario);
+        CatalogoDeArquivos.planilhasLivres(config.planilhasPermitidas());
+        PlanilhasPermitidas planilhas = new PlanilhasPermitidas(config.pastaArquivos(),
+                config.planilhasPermitidas(), pastaDeDados().resolve("planilhas-backup"));
         LixeiraDeArquivos lixeira = new LixeiraDeArquivos(config.pastaArquivos(),
                 config.lixeiraDiasRetencao(), editor);
         // Na partida: fecha movimento ou restauração interrompidos e apaga o que venceu enquanto
@@ -153,7 +225,7 @@ public final class AgentePc {
                 new ExecutorDeRotinas(catalogo, java.util.stream.Stream.of(config.pcToken(),
                         System.getenv("ANTHROPIC_API_KEY"), System.getenv("CLAUDE_CODE_OAUTH_TOKEN"),
                         System.getenv("OPENAI_API_KEY"), System.getenv("GITHUB_TOKEN"))
-                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira, fila, empresa);
+                        .filter(java.util.Objects::nonNull).toList()), editor, lixeira, fila, empresa, planilhas);
     }
 
     /**
@@ -232,7 +304,7 @@ public final class AgentePc {
             CatalogoRotinas catalogo, DiarioE2 diario, ExecutorComputer computer,
             boolean computerAtivo,
             ExecutorDeRotinas rotinas, EditorDeArquivos editor, LixeiraDeArquivos lixeira,
-            FilaDeInferencia fila, ExecutorDaEmpresa empresa)
+            FilaDeInferencia fila, ExecutorDaEmpresa empresa, PlanilhasPermitidas planilhas)
             throws InterruptedException {
         Duration espera = ESPERA_INICIAL;
         LocalDate ultimoExpurgo = null;
@@ -330,6 +402,9 @@ public final class AgentePc {
                             diario.concluir(comando.id(), resultado.ok() ? "concluído"
                                     : resultado.mensagem().startsWith("resultado_incerto")
                                             ? "resultado_incerto" : "falhou", resultado, null);
+                        } else if (ACOES_DE_PLANILHA.contains(comando.acao())) {
+                            Resultado resultado = executarPlanilha(comando, planilhas);
+                            diario.concluir(comando.id(), resultado.ok() ? "concluído" : "falhou", resultado, null);
                         } else if (comando.acao().equals("rodar_rotina")) {
                             String pedido = comando.dados().path("pedido").asText("");
                             Rotina cadastrada = catalogo.obter(comando.argumento());

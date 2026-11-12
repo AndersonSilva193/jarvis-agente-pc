@@ -56,6 +56,17 @@ final class ClienteJarvis {
         this.cabecalhoFoco = cabecalhoFoco;
     }
 
+    /** As ações de planilha que este agente sabe executar; a VPS só manda as que vê aqui. */
+    static final String ACOES_DE_PLANILHA = "acrescentar_linhas,alterar_linha,remover_linha";
+
+    /**
+     * Põe o X-Pc-Acoes. Ausente, a VPS entende "agente antigo" e guarda a escrita na fila em vez
+     * de mandar uma ação que este lado recusaria.
+     */
+    HttpRequest.Builder comAcoes(HttpRequest.Builder pedido) {
+        return pedido.header("X-Pc-Acoes", ACOES_DE_PLANILHA);
+    }
+
     /**
      * Põe o X-Pc-Foco só quando há um nome válido. Confere de novo aqui porque um CR/LF chegando
      * ao HttpClient lançaria a cada consulta e deixaria o laço em recuo para sempre; e qualquer
@@ -94,9 +105,9 @@ final class ClienteJarvis {
     }
 
     EntregaE2 buscarComandoE2() throws IOException, InterruptedException {
-        HttpRequest pedido = comFoco(autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos")))
+        HttpRequest pedido = comAcoes(comFoco(autenticar(HttpRequest.newBuilder(uri("/api/pc/v2/comandos")))
                 .timeout(TIMEOUT_BUSCA).header("X-Pc-Apps", config.cabecalhoDeApps())
-                .header("X-Pc-Ia", cabecalhoIa.get())).GET().build();
+                .header("X-Pc-Ia", cabecalhoIa.get()))).GET().build();
         HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
         if (resposta.statusCode() == 204) return null;
         if (resposta.statusCode() != 200) throw new IOException("busca E2 HTTP " + resposta.statusCode());
@@ -190,12 +201,12 @@ final class ClienteJarvis {
      * @throws IOException quando a VPS não responde ou recusa — quem chama faz a espera crescente
      */
     ComandoRecebido buscarComando() throws IOException, InterruptedException {
-        HttpRequest requisicao = comFoco(autenticar(HttpRequest.newBuilder(uri("/api/pc/comandos")))
+        HttpRequest requisicao = comAcoes(comFoco(autenticar(HttpRequest.newBuilder(uri("/api/pc/comandos")))
                 .timeout(TIMEOUT_BUSCA)
                 // A lista de apps vai em toda consulta: é assim que a VPS monta o enum de
                 // abrir_app sem guardar cópia dela.
                 .header("X-Pc-Apps", config.cabecalhoDeApps())
-                .header("X-Pc-Ia", cabecalhoIa.get()))
+                .header("X-Pc-Ia", cabecalhoIa.get())))
                 .GET()
                 .build();
 
