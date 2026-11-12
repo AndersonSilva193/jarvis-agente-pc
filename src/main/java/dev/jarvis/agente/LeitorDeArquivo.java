@@ -416,7 +416,7 @@ final class LeitorDeArquivo {
     }
 
     private static void csv(Path arquivo, JsonNode pedido, ObjectNode saida) throws IOException {
-        String texto = utf8(CatalogoDeArquivos.bytesSemLink(arquivo));
+        String texto = PlanilhasPermitidas.decodificar(CatalogoDeArquivos.bytesSemLink(arquivo));
         String delimitador = CatalogoDeArquivos.texto(pedido, "delimitador");
         if (delimitador.isEmpty()) delimitador = ",";
         if (!List.of(",", ";", "\t").contains(delimitador)) throw new IOException("delimitador inválido");

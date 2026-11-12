@@ -44,6 +44,16 @@ fragmentos devolvidos são partes do JSON do item e avançam até completar a li
 PDF sem texto extraível requer OCR, ainda não implementado. Arquivo removido ou alterado desde o
 cadastro é recusado até nova avaliação. Google Sheets nativo fica fora desta versão.
 
+## Planilhas dos agentes
+
+`acrescentar_linhas`, `alterar_linha` e `remover_linha` mexem só nos CSVs de
+`planilhas.permitidas` (padrão `agenda.csv`, `financas.csv`, `leads.csv`), na raiz de
+`pastaArquivos`, pelo nome. Cada linha tem a coluna `Id`: acrescentar é idempotente por ela, e
+linha escrita à mão sem `Id` ganha um na próxima escrita. O arquivo é lido em UTF-8 ou no ANSI do
+Excel e regravado em UTF-8 com BOM; aberto no Excel, a ação responde `arquivo_travado` e a VPS
+tenta de novo depois. Alterar e remover guardam o original em
+`%LOCALAPPDATA%\jarvis-agente-pc\planilhas-backup` (10 versões por arquivo).
+
 ## Compilar
 
 ```powershell
@@ -72,6 +82,13 @@ As chaves do despertar (`gatilho.palmas`, `gatilho.voz`, `microfone`, `palmas.se
 valendo.
 
 O `config.properties` tem o token e está no `.gitignore`. Mantenha assim.
+
+## Hermes3D
+
+Com as chaves `hermes3d.*` preenchidas, o agente liga o backend Hermes, o adaptador e o Studio,
+e os religa se caírem. Antes da primeira vez, rode `npm run build` na pasta do Hermes3D e
+`plugins/hermes3d-team/install.ps1` para instalar as ferramentas de equipe.
+Serviço cuja porta já está aberta não é iniciado de novo.
 
 ## Rodar na mão (para testar)
 

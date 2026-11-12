@@ -33,6 +33,9 @@ import java.util.logging.Logger;
  * @param ia              o Ollama deste PC, que a ação {@code inferir} usa
  * @param reportarFoco    mandar no {@code X-Pc-Foco} o nome do processo em primeiro plano — só o
  *                        nome, nunca o título da janela
+ * @param hermes3d        o Hermes3D que este agente sobe e com quem fala
+ * @param planilhasPermitidas os CSVs da raiz de {@code pastaArquivos} que a VPS pode acrescentar,
+ *                        alterar e remover linhas (nomes em minúsculas)
  */
 public record Configuracao(
         URI urlApi,
@@ -53,7 +56,49 @@ public record Configuracao(
         LimitesEdicao limitesEdicao,
         int lixeiraDiasRetencao,
         ConfigIa ia,
-        boolean reportarFoco) {
+        boolean reportarFoco,
+        ConfigHermes3d hermes3d,
+        java.util.Set<String> planilhasPermitidas) {
+
+    /** As planilhas dos agentes do escritório, quando o config.properties não diz outra coisa. */
+    static final java.util.Set<String> PLANILHAS_PADRAO = java.util.Set.of("agenda.csv", "financas.csv", "leads.csv");
+
+    /** Construtor mantido para quem monta a configuração sem falar das planilhas. */
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo, LimitesEdicao limitesEdicao, int lixeiraDiasRetencao,
+            ConfigIa ia, boolean reportarFoco, ConfigHermes3d hermes3d) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo, limitesEdicao,
+                lixeiraDiasRetencao, ia, reportarFoco, hermes3d, PLANILHAS_PADRAO);
+    }
+
+    /** Construtor mantido para quem monta a configuração sem falar do Hermes3D. */
+    public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
+            boolean gatilhoPalmas, boolean gatilhoVoz, String microfone,
+            double palmasSensibilidadeDb, double vozConfiancaMinima, String hudModo,
+            boolean manterPcAcordado, Path vozExecutavel, Path vozModelo, Path pastaArquivos,
+            boolean computerUseAtivo, LimitesEdicao limitesEdicao, int lixeiraDiasRetencao,
+            ConfigIa ia, boolean reportarFoco) {
+        this(urlApi, pcToken, urlHud, apps, gatilhoPalmas, gatilhoVoz, microfone,
+                palmasSensibilidadeDb, vozConfiancaMinima, hudModo, manterPcAcordado,
+                vozExecutavel, vozModelo, pastaArquivos, computerUseAtivo, limitesEdicao,
+                lixeiraDiasRetencao, ia, reportarFoco, ConfigHermes3d.desligado());
+    }
+
+    /**
+     * O Hermes3D deste PC. Sem todas as chaves ele fica desligado e o agente segue normal.
+     *
+     * @param token o mesmo {@code HERMES_API_KEY} do {@code .env} do Hermes3D
+     */
+    public record ConfigHermes3d(boolean ativo, Path pasta, Path node, Path hermes, String token) {
+        static ConfigHermes3d desligado() {
+            return new ConfigHermes3d(false, null, null, null, "");
+        }
+    }
 
     /** Construtor mantido para quem monta a configuração sem falar do X-Pc-Foco. */
     public Configuracao(URI urlApi, String pcToken, URI urlHud, Map<String, Path> apps,
@@ -205,7 +250,46 @@ public record Configuracao(
                                 1024 * 1024, 1024 * 1024 * 1024)),
                 inteiro(propriedades, "lixeira.diasRetencao", DIAS_RETENCAO_PADRAO, 1, 3650),
                 ia(propriedades),
-                booleano(propriedades, "reportarFoco", true));
+                booleano(propriedades, "reportarFoco", true),
+                hermes3d(propriedades),
+                planilhas(propriedades));
+    }
+
+    private static java.util.Set<String> planilhas(Properties propriedades) {
+        if (!propriedades.containsKey("planilhas.permitidas")) return PLANILHAS_PADRAO;
+        java.util.Set<String> nomes = new java.util.HashSet<>();
+        for (String nome : texto(propriedades, "planilhas.permitidas").split(",")) {
+            String limpo = nome.trim();
+            if (limpo.isEmpty()) continue;
+            if (PlanilhasPermitidas.nomeValido(limpo)) nomes.add(limpo.toLowerCase(Locale.ROOT));
+            else log.warning("planilhas.permitidas: '" + limpo + "' não é um nome simples de CSV; ignorado");
+        }
+        return java.util.Set.copyOf(nomes);
+    }
+
+    private static ConfigHermes3d hermes3d(Properties propriedades) {
+        String pasta = texto(propriedades, "hermes3d.pasta");
+        String node = texto(propriedades, "hermes3d.node");
+        String hermes = texto(propriedades, "hermes3d.hermes");
+        String token = texto(propriedades, "hermes3d.token");
+        if (pasta.isEmpty() && node.isEmpty() && hermes.isEmpty() && token.isEmpty()) {
+            return ConfigHermes3d.desligado();
+        }
+        if (pasta.isEmpty() || node.isEmpty() || hermes.isEmpty() || token.isEmpty()) {
+            log.warning("faltam chaves hermes3d.*; Hermes3D desligado neste PC");
+            return ConfigHermes3d.desligado();
+        }
+        try {
+            Path caminho = Path.of(pasta);
+            if (!Files.isDirectory(caminho)) {
+                log.warning("hermes3d.pasta não existe; Hermes3D desligado neste PC");
+                return ConfigHermes3d.desligado();
+            }
+            return new ConfigHermes3d(true, caminho, Path.of(node), Path.of(hermes), token);
+        } catch (InvalidPathException invalido) {
+            log.warning("caminho inválido em hermes3d.*; Hermes3D desligado neste PC");
+            return ConfigHermes3d.desligado();
+        }
     }
 
     private static ConfigIa ia(Properties propriedades) throws IOException {

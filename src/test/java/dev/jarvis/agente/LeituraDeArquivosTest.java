@@ -44,6 +44,29 @@ class LeituraDeArquivosTest {
         assertThrows(Exception.class, () -> ler(id, ""));
     }
 
+    @Test void csvAnsiDoExcelLeComAcento() throws Exception {
+        Files.write(pasta.resolve("agenda.csv"), "Id;Compromisso\r\na1;Reunião\r\n"
+                .getBytes(java.nio.charset.Charset.forName("windows-1252")));
+        String id = buscar("agenda", "csv");
+        assertEquals("Reunião", ler(id, ",\"delimitador\":\";\",\"linhaInicial\":2")
+                .path("linhas").get(0).get(1).stringValue());
+    }
+
+    @Test void planilhaPermitidaAlteradaPorForaContinuaLegivel() throws Exception {
+        Files.writeString(pasta.resolve("leads.csv"), "Data;Empresa\n11/11/2026;Academia\n");
+        String id = buscar("leads", "csv");
+        Files.writeString(pasta.resolve("leads.csv"), "Data;Empresa\n11/11/2026;Academia\n12/11/2026;Padaria\n");
+        assertEquals("disponivel", new CatalogoDeArquivos(pasta).listar(dados("{\"nome\":\"leads\"}"))
+                .path("arquivos").get(0).path("estado").stringValue());
+        assertEquals("Padaria", ler(id, ",\"delimitador\":\";\",\"linhaInicial\":3")
+                .path("linhas").get(0).get(1).stringValue());
+
+        Files.writeString(pasta.resolve("outro.csv"), "A\n1\n");
+        String outro = buscar("outro", "csv");
+        Files.writeString(pasta.resolve("outro.csv"), "A\n1\n2\n");
+        assertThrows(Exception.class, () -> ler(outro, ""));
+    }
+
     @Test void seisFormatosEIntervalos() throws Exception {
         String md = criar("texto", "md", "# Título\n\nLinha");
         assertTrue(ler(md, "").path("conteudo").stringValue().contains("Título"));

@@ -83,6 +83,18 @@ final class CatalogoDeArquivos {
 
     CatalogoDeArquivos(Path pasta) { this.pasta = pasta.toAbsolutePath().normalize(); }
 
+    /**
+     * As planilhas dos agentes ({@code planilhas.permitidas}). Nelas, mudança feita por fora — o
+     * Closer acrescentando lead, o dono no Excel — é o uso normal, não um arquivo "alterado".
+     * Fica estático porque o catálogo é montado em vários lugares só com a pasta; a partida do
+     * agente define uma vez.
+     */
+    private static volatile Set<String> planilhasLivres = Configuracao.PLANILHAS_PADRAO;
+
+    static void planilhasLivres(Set<String> nomes) {
+        planilhasLivres = Set.copyOf(nomes);
+    }
+
     private Path raiz() throws IOException {
         for (Path parte = pasta; parte != null; parte = parte.getParent())
             if (Files.isSymbolicLink(parte)) throw new IOException("pasta de arquivos contém link");
@@ -155,7 +167,9 @@ final class CatalogoDeArquivos {
     private static void validarFormato(Path arquivo, String formato) throws IOException {
         try {
             switch (formato) {
-                case "txt", "md", "csv" -> java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+                // CSV pode vir no ANSI que o Excel em português grava; a leitura decide a codificação.
+                case "csv" -> { }
+                case "txt", "md" -> java.nio.charset.StandardCharsets.UTF_8.newDecoder()
                         .decode(java.nio.ByteBuffer.wrap(bytesSemLink(arquivo)));
                 case "json" -> EdicaoJson.analisar(bytesSemLink(arquivo));
                 case "pdf" -> { try (var doc = Loader.loadPDF(bytesSemLink(arquivo))) {
@@ -199,9 +213,14 @@ final class CatalogoDeArquivos {
         Path seguro = caminho(arquivo.getFileName().toString());
         Entrada atual = validar(seguro, "");
         List<Entrada> entradas = carregar();
-        for (Entrada e : entradas) if (e.pasta().isEmpty() && e.nome().equals(atual.nome())) {
-            if (!e.hash().equals(atual.hash())) throw new IOException("arquivo já cadastrado foi alterado");
-            return e;
+        for (int i = 0; i < entradas.size(); i++) {
+            Entrada e = entradas.get(i);
+            if (!e.pasta().isEmpty() || !e.nome().equals(atual.nome())) continue;
+            if (e.hash().equals(atual.hash())) return e;
+            if (!livre(e)) throw new IOException("arquivo já cadastrado foi alterado");
+            Entrada nova = new Entrada(e.id(), atual.nome(), atual.formato(), atual.tamanho(),
+                    atual.modificado(), atual.hash());
+            entradas.set(i, nova); salvar(entradas); return nova;
         }
         Entrada novo = new Entrada(UUID.randomUUID().toString(), atual.nome(), atual.formato(),
                 atual.tamanho(), atual.modificado(), atual.hash());
@@ -294,9 +313,19 @@ final class CatalogoDeArquivos {
             Path arquivo = caminho(e.nome(), e.pasta());
             if (!Files.exists(arquivo, LinkOption.NOFOLLOW_LINKS)) return "removido";
             Entrada atual = validar(arquivo, e.id(), e.pasta());
-            return atual.tamanho() == e.tamanho() && atual.modificado() == e.modificado()
-                    && atual.hash().equals(e.hash()) ? "disponivel" : "alterado";
+            if (atual.tamanho() == e.tamanho() && atual.modificado() == e.modificado()
+                    && atual.hash().equals(e.hash())) return "disponivel";
+            if (!livre(e)) return "alterado";
+            List<Entrada> entradas = carregar();
+            for (int i = 0; i < entradas.size(); i++)
+                if (entradas.get(i).id().equals(e.id())) { entradas.set(i, atual); salvar(entradas); break; }
+            return "disponivel";
         } catch (IOException ex) { return "alterado"; }
+    }
+
+    /** Planilha dos agentes na raiz: mudança por fora é esperada e o catálogo se atualiza. */
+    private static boolean livre(Entrada e) {
+        return e.pasta().isEmpty() && planilhasLivres.contains(e.nome().toLowerCase(Locale.ROOT));
     }
 
     Path arquivo(Entrada e) throws IOException {

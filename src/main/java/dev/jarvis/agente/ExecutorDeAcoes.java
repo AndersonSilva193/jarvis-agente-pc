@@ -45,6 +45,7 @@ final class ExecutorDeAcoes {
     private final Despertador despertador;
     /** Só para a lixeira perguntar se há edição em voo no arquivo; nulo é aceitável. */
     private final EditorDeArquivos editor;
+    private final AcoesDaEmpresa empresa;
 
     ExecutorDeAcoes(Configuracao config, JanelaDaHud janela, Despertador despertador) {
         this(config, janela, despertador, null);
@@ -52,6 +53,12 @@ final class ExecutorDeAcoes {
 
     ExecutorDeAcoes(Configuracao config, JanelaDaHud janela, Despertador despertador,
             EditorDeArquivos editor) {
+        this(config, janela, despertador, editor, AcoesDaEmpresa.de(config));
+    }
+
+    ExecutorDeAcoes(Configuracao config, JanelaDaHud janela, Despertador despertador,
+            EditorDeArquivos editor, AcoesDaEmpresa empresa) {
+        this.empresa = empresa;
         this.config = config;
         this.janela = janela;
         this.despertador = despertador;
@@ -90,6 +97,8 @@ final class ExecutorDeAcoes {
                 case "cancelar_desligamento" -> cancelarDesligamento(comando);
                 case "modo_repouso" -> modoRepouso(comando);
                 case "falso_positivo" -> falsoPositivo(comando);
+                case "empresa_abrir" -> empresa.abrir(comando);
+                case "empresa_status" -> empresa.status(comando);
                 default -> Resultado.falhou(comando, "não conheço a ação '" + comando.acao() + "'");
             };
         } catch (InterruptedException e) {

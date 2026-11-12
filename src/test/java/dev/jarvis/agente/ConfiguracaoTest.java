@@ -31,6 +31,37 @@ class ConfiguracaoTest {
         return Configuracao.ler(arquivo);
     }
 
+    @Test void planilhasPermitidasTemPadraoDosAgentes() throws Exception {
+        assertEquals(java.util.Set.of("agenda.csv", "financas.csv", "leads.csv"), ler("").planilhasPermitidas());
+    }
+
+    @Test void planilhasPermitidasIgnoraNomeComCaminho() throws Exception {
+        assertEquals(java.util.Set.of("agenda.csv", "metas.csv"),
+                ler("planilhas.permitidas=Agenda.csv, metas.csv, ../x.csv, sub/y.csv\n").planilhasPermitidas());
+    }
+
+    @Test void semAsChavesDoHermes3dElePermaneceDesligado() throws Exception {
+        assertFalse(ler("").hermes3d().ativo());
+    }
+
+    @Test void comTodasAsChavesOHermes3dLiga() throws Exception {
+        Files.createDirectories(pasta.resolve("h3d"));
+        String h3d = pasta.resolve("h3d").toString().replace('\\', '/');
+        Configuracao.ConfigHermes3d config = ler("hermes3d.pasta=" + h3d
+                + "\nhermes3d.node=C:/node.exe\nhermes3d.hermes=C:/hermes.exe\nhermes3d.token=abc\n").hermes3d();
+        assertTrue(config.ativo());
+        assertEquals("abc", config.token());
+        assertEquals(Path.of(h3d), config.pasta());
+    }
+
+    @Test void chaveFaltandoOuPastaInexistenteDesligaSemDerrubar() throws Exception {
+        assertFalse(ler("hermes3d.pasta=C:/nao/existe\nhermes3d.node=n\nhermes3d.hermes=h\nhermes3d.token=t\n")
+                .hermes3d().ativo());
+        Files.createDirectories(pasta.resolve("h3d"));
+        String h3d = pasta.resolve("h3d").toString().replace('\\', '/');
+        assertFalse(ler("hermes3d.pasta=" + h3d + "\nhermes3d.node=n\nhermes3d.hermes=h\n").hermes3d().ativo());
+    }
+
     @Test void caminhosPartemDoArquivoNaoDoDiretorioAtual() throws Exception {
         Configuracao config = ler("voz.executavel=bin/whisper-cli.exe\nvoz.modelo=modelos/base.bin\n");
         assertEquals(pasta.resolve("bin/whisper-cli.exe").toAbsolutePath(), config.vozExecutavel());
